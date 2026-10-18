@@ -2,7 +2,7 @@
 
 > **Agents and contributors: read [`documentation/jitter-hypotheses.md`](documentation/jitter-hypotheses.md) before changing the tracker or orchestrator.** It lists unverified hypotheses for the turret's jitter and aimless motion, and how to test them.
 
-WALDO is a pan/tilt turret with a flashlight. It patrols a room, finds people and objects
+WALDO is a pan/tilt turret with a flashlight. It patrols a room, finds people
 with a camera, points at them and keeps following them. You steer it by voice: "stop",
 "go", "left", "off". Everything runs on the **Alif Ensemble E8 DevKit**: no PC, no cloud.
 
@@ -100,7 +100,7 @@ two tilts): move, settle 0.6 s, look 0.7 s. Each stop keeps a 300-byte picture o
 (the mean of every 8x8 cell, compared with one cell of slack for servo error). YOLO runs
 only where that picture changed since the last lap, on a first visit, every third lap, or
 when something moves. In the host test, a second lap of an unchanged room runs YOLO at
-**0 of 10 stops**, and an object that appears is picked up at the one stop that sees it.
+**0 of 10 stops**, and a change in the room is looked at again at the one stop that sees it (only people are followed).
 
 **Voice commands:**
 
@@ -109,11 +109,10 @@ when something moves. In the host test, a second lap of an unchanged room runs Y
 | off | park |
 | on / go | wake up, or resume what it was doing before "stop" |
 | stop | hold still |
-| left / right / up / down | while tracking: **switch to the nearest person or object in that direction and follow that kind of thing** ("right" moves from a person to the cup beside them); otherwise nudge 10 degrees |
-| no | drop the current target, back to following people |
+| left / right / up / down | while tracking: **switch to the nearest other person in that direction**; otherwise nudge 10 degrees |
+| no | drop the current target and pick again among people |
 
-The screen shows the camera view with boxes (target green, other people yellow, objects
-cyan), the state, what WALDO follows, the last word it heard, and its frame rate.
+The screen shows the camera view with boxes (target green, other people yellow), the state, what WALDO follows, the last word it heard, and its frame rate.
 
 ## The models
 

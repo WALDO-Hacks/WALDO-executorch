@@ -1,12 +1,13 @@
 # "Hey Waldo" wake word: every number the scripts use lives here (no magic numbers in code).
 seed: 20261018
-paths:                     # outside the repo; untrusted data stays there
-  scratch: /Users/jang/Documents/EngSearch/data-scratch
-  speech_commands: /Users/jang/Documents/EngSearch/data-scratch/speech_commands_v0.02
-  tts: /Users/jang/Documents/EngSearch/data-scratch/wake_tts
-  cache: /Users/jang/Documents/EngSearch/data-scratch/wake_cache
-  runs: /Users/jang/Documents/EngSearch/data-scratch/wake_runs
-  real: /Users/jang/Documents/EngSearch/data-scratch/wake_real   # record_real.py output, optional
+paths:                     # outside the repo; untrusted data stays there. Relative paths are
+                           # taken from the repo root; ~ and $VARS are expanded (wakelib.load_config)
+  scratch: ../../data-scratch
+  speech_commands: ../../data-scratch/speech_commands_v0.02
+  tts: ../../data-scratch/wake_tts
+  cache: ../../data-scratch/wake_cache
+  runs: ../../data-scratch/wake_runs
+  real: ../../data-scratch/wake_real   # record_real.py output, optional
 
 tts:
   # Natural-sounding macOS en_ voices. Excluded novelty voices: Bad News, Bahh, Bells, Boing,

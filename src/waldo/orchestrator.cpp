@@ -97,8 +97,7 @@ void enter(enum orch_state s, uint32_t now)
     } else if (s == ORCH_SENTRY) {
         motion_set(AXIS_PAN, 0);
         motion_set(AXIS_TILT, 0);
-        // A chosen class (say "right" onto a cup) survives "stop"/"go"; only a fresh start
-        // from PARKED goes back to people.
+        // A chosen person survives "stop"/"go"; only a fresh start from PARKED resets the target.
         if (state_before_enter == ORCH_PARKED) tracker_reset_target();
         else tracker_lose_target();
         last_move_ms = now;
@@ -312,8 +311,8 @@ void orch_frame(const struct cam_frame *f, uint32_t now, struct det_box *boxes, 
     *n_out = n;
     if (state == ORCH_HOLD) return;   // looks, doesn't move
 
-    // Only a box of the target class counts (people, until "left"/"right" picks an
-    // object): a chair in the background must not keep WALDO busy.
+    // Only people reach here (face_detect_adapter.cpp): a chair in the background must not
+    // keep WALDO busy.
     if (tracker_update(boxes, n, f->width, f->height, now)) {
         last_target_ms = now;
         last_move_ms = now;
@@ -358,8 +357,7 @@ void orch_word(const char *w, uint32_t now)
     } else if (!strcmp(w, "no")) {
         tracker_reset_target();   // drop what it follows, back to people
     } else if (!strcmp(w, "yes")) {
-        // Lock onto what is in the middle of the picture and follow that kind of thing:
-        // point the turret at a cup ("left"/"right"), say "yes", and it tracks cups.
+        // Lock onto the person nearest the middle of the picture.
         if (state == ORCH_PARKED) return;
         tracker_switch(TRACK_SWITCH_CENTER, now);
         if (state != ORCH_TRACK) {

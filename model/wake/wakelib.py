@@ -3,6 +3,7 @@
 The front end is model/kws/mfcc.py (the firmware's src/waldo/kws_mfcc.c does the same maths);
 `mfcc_batch` only vectorises it over many windows and is tested against `mfcc.mfcc`.
 """
+import os
 import re
 import sys
 import wave
@@ -24,7 +25,11 @@ FRAMES, COEFFS = kws_mfcc.FRAMES, kws_mfcc.COEFFS
 
 
 def load_config(path=HERE / "config.yaml"):
-    return yaml.safe_load(Path(path).read_text())
+    cfg = yaml.safe_load(Path(path).read_text())
+    for k, v in cfg["paths"].items():
+        p = Path(os.path.expandvars(v)).expanduser()
+        cfg["paths"][k] = str(p if p.is_absolute() else (ROOT / p).resolve())
+    return cfg
 
 
 def read_wav(path):

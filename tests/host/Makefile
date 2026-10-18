@@ -22,9 +22,6 @@ test_tracking_loop: test_tracking_loop.cpp $(W)/tracker.cpp $(W)/motion.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
 # The LCD: the firmware's JPEG decode, rotation, view.cpp and the board's display.c.
-test_tracking_loop: test_tracking_loop.cpp $(W)/tracker.cpp $(W)/motion.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $^
-
 test_view: test_view.cpp display_host.c $(W)/view.cpp $(W)/jpeg_frame.c $(W)/tjpgd/tjpgd.c
 	$(CC) -O1 -Istubs -I../../board/DevKit-E8 -c display_host.c -o display_host.o
 	$(CC) -O1 -I$(W) -c $(W)/jpeg_frame.c -o jpeg_frame.o

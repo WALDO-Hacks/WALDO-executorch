@@ -27,15 +27,15 @@ States: **PARKED** head down, vision off. **SENTRY** waiting and patrolling for 
 | **on** | Wake up. | wakes to SENTRY | no effect | no effect | resumes what it was doing (see **go**) |
 | **go** | Same as **on**: wake up, or resume after **stop**. | wakes to SENTRY | no effect | no effect | back to TRACK on the same target if it was tracking, else SENTRY |
 | **stop** | Freeze where it is; it keeps looking (the screen and detector stay live). Always works, also without the wake word. | no effect | HOLD | HOLD | no effect |
-| **left** | Move the turret toward the left. | ignored | nudge 10 deg left | **switch target** to the nearest person or object to the left and follow that kind of thing | nudge 10 deg left |
-| **right** | Same, toward the right. | ignored | nudge 10 deg right | switch target to the nearest thing to the right | nudge 10 deg right |
-| **up** | Same, upward. | ignored | nudge 10 deg up | switch target to the nearest thing above | nudge 10 deg up |
-| **down** | Same, downward. | ignored | nudge 10 deg down | switch target to the nearest thing below | nudge 10 deg down |
+| **left** | Move the turret toward the left. | ignored | nudge 10 deg left | **switch target** to the nearest other person to the left | nudge 10 deg left |
+| **right** | Same, toward the right. | ignored | nudge 10 deg right | switch target to the nearest other person to the right | nudge 10 deg right |
+| **up** | Same, upward. | ignored | nudge 10 deg up | switch target to the nearest other person above | nudge 10 deg up |
+| **down** | Same, downward. | ignored | nudge 10 deg down | switch target to the nearest other person below | nudge 10 deg down |
 | **no** | Drop the current target; back to following people. | no effect | back to people | back to people | back to people |
 | **yes** | Heard and shown on the console, **no action** (reserved). | - | - | - | - |
 | `_silence_`, `_unknown_` | Background and other words: never acted on. | | | | |
 
-Switching target while tracking: "right" moves from a person to the cup beside them and then follows cups (the class of what it switched to) until you say another direction or **no**.
+Switching target while tracking: "right" moves to the nearest other person on the right and follows them until you say another direction or **no**. Only the person class reaches the tracker (`face_detect_adapter.cpp`), so objects are never targets.
 If nothing is in that direction it says so on the console and keeps its target.
 
 ## What is kept until you say something else (hold target)
@@ -53,7 +53,7 @@ The wake detector, its data, metrics and limits are in `documentation/wake-word.
 
 ## Not possible with these words
 
-- Naming an object ("track the cup"): the vocabulary has no object words. The HP side exists (`orch_track_class`) but nothing can call it by voice yet; it needs more words trained or a console path.
+- Following objects ("track the cup"): out of scope, the turret follows people only.
 - Numbers, "faster", "light on/off": not in the vocabulary.
 
 ## Try it on the board without speaking

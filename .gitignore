@@ -84,13 +84,18 @@ fvp_stdout.log
 !.vscode/fvp.sh
 !.vscode/fvp.Dockerfile
 !.vscode/launch.json.mac
+# Host test binaries and the images they write (make -C tests/host)
 tests/host/test_orchestrator
 tests/host/test_tracking_loop
 tests/host/test_runner
-tests/host/test_tracking_loop
-yolov8n.pt
 tests/host/test_view
+tests/host/test_brain
 tests/host/*.ppm
 
+# Local-only: model weights downloaded by Ultralytics, OS and editor litter, machine paths
+yolov8n.pt
+.DS_Store
+tools/env.sh
+
+# The tracked, int8 YOLOv8n program: the *.pte rule above is for scratch exports
 !model/yolo/yolo.pte
-tests/host/test_brain
