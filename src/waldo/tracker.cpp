@@ -13,6 +13,8 @@ static struct {
     uint32_t home_after_ms = 5000;
 } cfg;
 
+static int target_index = -1;
+
 static struct {
     bool has_target, at_home = true;
     float cx, cy, w;
@@ -23,6 +25,7 @@ static struct {
 void tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32_t now)
 {
     if (n == 0) {
+        target_index = -1;
         st.has_target = false;
         if (!st.at_home && now - st.last_seen_ms > cfg.home_after_ms) {
             // Look straight ahead again so the camera can find the next target.
@@ -45,6 +48,7 @@ void tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
             pick = i;
         }
     }
+    target_index = pick;
     st.cx = b[pick].x + b[pick].w / 2.0f;
     st.cy = b[pick].y + b[pick].h / 2.0f;
     st.w = b[pick].w;
@@ -71,3 +75,5 @@ void tracker_print(void)
            (double)st.err_pan, (double)st.err_tilt, (double)motion_pos(AXIS_PAN),
            (double)motion_pos(AXIS_TILT));
 }
+
+int tracker_target_index(void) { return target_index; }

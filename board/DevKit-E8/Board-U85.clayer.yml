@@ -38,7 +38,8 @@ layer:
     # section there.
     - APP_POOL_SECTION: \".bss.ai_pool\"
     - APP_METHOD_POOL_SIZE: 0x100000
-    - APP_TEMP_POOL_SIZE: 0x200000
+    - APP_TEMP_POOL_SIZE: 0x180000   # leaves room in SRAM0 for the 1.1 MB LCD frame buffer
+    - APP_DISPLAY
 
   packs:
     - pack: AlifSemiconductor::Ensemble@^2.2.0-0
@@ -69,6 +70,12 @@ layer:
     - component: Device:SOC Peripherals:MHU
     - component: Device:SOC Peripherals:PINCONF
     - component: Device:SOC Peripherals:UTIMER
+    # LCD (from hackathon-pico-faces): CDC200 + MIPI-DSI + ILI9806E panel
+    - component: Device:SOC Peripherals:CDC
+    - component: Device:SOC Peripherals:MIPI DSI
+    - component: Device:SOC Peripherals:MIPI DSI CSI2 DPHY
+    - component: Device:SOC Peripherals:GPIO
+    - component: BSP:External peripherals:ILI9806E LCD panel
 
     - component: Machine Learning:NPU Support:Ethos-U Driver&Generic U85
 
@@ -86,6 +93,8 @@ layer:
         - file: ./DevKit-E8.h
         - file: ./ethos_setup.c
         - file: ./retarget_stdio.c
+        - file: ./display.c
+        - file: ./board_display.h
 
     - group: Ethos Interface
       files:

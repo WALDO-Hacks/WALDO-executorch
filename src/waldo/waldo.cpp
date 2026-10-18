@@ -11,6 +11,7 @@
 #include "detector.h"
 #include "tracker.h"
 #include "face_detector.hpp"
+#include "board_display.h"
 
 static volatile uint32_t ms;
 extern "C" void SysTick_Handler(void) { ms++; }
@@ -48,6 +49,17 @@ void waldo_poll(void)
         struct det_box boxes[8];
         int n = detect(f, boxes, 8);
         tracker_update(boxes, n, f->width, f->height, now);
+
+        // What WALDO sees, on the LCD: the camera frame, faces boxed, the tracked one green.
+        if (board_display_image(f->pix, f->width, f->height, 1) == 0) {
+            for (int i = 0; i < n; i++) {
+                bool target = i == tracker_target_index();
+                board_display_box(boxes[i].x, boxes[i].y, boxes[i].w, boxes[i].h,
+                                  target ? 0 : 255, target ? 255 : 200, 0, target ? 3 : 2);
+            }
+            // Centre mark: the tracker drives the target onto it.
+            board_display_box(f->width / 2 - 2, f->height / 2 - 2, 5, 5, 255, 255, 255, 1);
+        }
     }
     if (now - last_stats >= 2000) {
         uint32_t ok, bad, lost;

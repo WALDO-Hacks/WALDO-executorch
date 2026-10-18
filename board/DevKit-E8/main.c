@@ -30,6 +30,25 @@
 #include "services_lib_api.h"
 #include <stdio.h>
 
+/* VBAT PWR_CTRL fields: power and isolation of the MIPI DPHYs and their PLL
+   (from the hackathon-pico-faces branch: the display's DSI link needs them) */
+#define VBAT_PWR_CTRL_TX_DPHY_PWR_MASK        (1U <<  0)
+#define VBAT_PWR_CTRL_TX_DPHY_ISO             (1U <<  1)
+#define VBAT_PWR_CTRL_RX_DPHY_PWR_MASK        (1U <<  4)
+#define VBAT_PWR_CTRL_RX_DPHY_ISO             (1U <<  5)
+#define VBAT_PWR_CTRL_DPHY_PLL_PWR_MASK       (1U <<  8)
+#define VBAT_PWR_CTRL_DPHY_PLL_ISO            (1U <<  9)
+#define VBAT_PWR_CTRL_DPHY_VPH_1P8_PWR_BYP_EN (1U << 12)
+
+/* Power up the MIPI DPHYs (the display's DSI link needs the TX DPHY and PLL) */
+static void vbat_init(void)
+{
+    VBAT->PWR_CTRL &= ~(VBAT_PWR_CTRL_TX_DPHY_PWR_MASK | VBAT_PWR_CTRL_RX_DPHY_PWR_MASK |
+                        VBAT_PWR_CTRL_DPHY_PLL_PWR_MASK | VBAT_PWR_CTRL_DPHY_VPH_1P8_PWR_BYP_EN);
+    VBAT->PWR_CTRL &= ~(VBAT_PWR_CTRL_TX_DPHY_ISO | VBAT_PWR_CTRL_RX_DPHY_ISO |
+                        VBAT_PWR_CTRL_DPHY_PLL_ISO);
+}
+
 /* SRAM0 is off at reset when booting from MRAM without a debugger. The NPU can only
  * reach SRAM (not the core's DTCM), so the ExecuTorch pools live there: power it
  * on before anything uses it. */
@@ -43,6 +62,12 @@ static void sram0_power_on(void)
 
 int main(void)
 {
+    /* The pack's startup enables the caches without invalidating them; after a
+       flash update and a warm reset the data cache can still hold lines of the
+       previous image. Drop them before anything uses the model. */
+    SCB_CleanInvalidateDCache();
+    SCB_InvalidateICache();
+
     /* Apply the Conductor pin configuration (includes the UART4 console pins) */
     board_pins_config();
 
@@ -54,6 +79,9 @@ int main(void)
 
     /* Request the clocks the SE has to enable for this core */
     board_clocks_config(CLKEN_HFOSC_MASK | CLKEN_CLK_100M_MASK);
+
+    /* Power up the MIPI DPHY for the display */
+    vbat_init();
 
     /* Initialize STDIO (UART4 on the PRG USB connector) */
     stdio_init();

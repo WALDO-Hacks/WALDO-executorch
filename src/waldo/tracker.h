@@ -6,3 +6,5 @@
 
 void tracker_update(const struct det_box *boxes, int n, int img_w, int img_h, uint32_t now_ms);
 void tracker_print(void);
+// Index (in the last boxes passed to tracker_update) of the target being followed, or -1.
+int tracker_target_index(void);
