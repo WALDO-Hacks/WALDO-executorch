@@ -8,7 +8,8 @@
 #include <stdint.h>
 
 #define CAMLINK_BAUD        2000000
-#define CAMLINK_FMT_GRAY8   1
+#define CAMLINK_FMT_GRAY8   1   // raw 8-bit grayscale, width x height bytes
+#define CAMLINK_FMT_JPEG    2   // a baseline JPEG (colour), len bytes
 
 typedef struct __attribute__((packed)) {
   char magic[4];   // "WLDF"

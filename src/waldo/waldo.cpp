@@ -15,12 +15,13 @@
 #include "board_display.h"
 #include "mic.h"
 #include "kws.hpp"
+#include "orchestrator.h"
 
 // Per-stage timing (DWT cycle counter, started by face_detector_init): mean and worst
 // over each 2 s stats window, printed with the stats.
 enum { ST_LINK, ST_PRE, ST_NPU, ST_POST, ST_TRACK, ST_DISPLAY, ST_FRAME, ST_N };
 static const char *const st_name[ST_N] = {"camera rx", "preprocess", "NPU", "decode+NMS",
-                                          "tracker", "display", "frame total"};
+                                          "orchestrator+tracker", "display", "frame total"};
 static struct { uint64_t sum; uint32_t max, n; } st[ST_N];
 
 static inline uint32_t cycles(void) { return DWT->CYCCNT; }
@@ -86,26 +87,37 @@ void waldo_poll(void)
         frame_seen = f->count;
         const uint32_t cf = cycles();
         struct det_box boxes[8];
-        int n = detect(f, boxes, 8);
-        uint32_t pre, npu, post;
-        face_detector_stage_us(&pre, &npu, &post);
-        st_add(ST_PRE, pre);
-        st_add(ST_NPU, npu);
-        st_add(ST_POST, post);
+        int n;
+        orch_frame(f, now, boxes, 8, &n);   // runs the detector only when the state needs it
+        const uint32_t orch_us = (cycles() - cf) / (SystemCoreClock / 1000000u);
+        if (n >= 0) {
+            uint32_t pre, npu, post;
+            face_detector_stage_us(&pre, &npu, &post);
+            st_add(ST_PRE, pre);
+            st_add(ST_NPU, npu);
+            st_add(ST_POST, post);
+            st_add(ST_TRACK, orch_us - pre - npu - post);
+        } else {
+            st_add(ST_TRACK, orch_us);
+        }
         uint32_t c = cycles();
-        tracker_update(boxes, n, f->width, f->height, now);
-        st_add_cyc(ST_TRACK, cycles() - c);
-        c = cycles();
 
-        // What WALDO sees, on the LCD: the camera frame, faces boxed, the tracked one green.
-        if (board_display_image(f->pix, f->width, f->height, 1) == 0) {
+        // What WALDO sees, on the LCD: the camera frame (colour when the head sends JPEG),
+        // detections boxed with the tracked one green, and a bar showing the state.
+        const bool colour = f->rgb != nullptr;
+        const int k = colour ? 2 : 1;   // boxes are in grayscale-frame pixels
+        if ((colour ? board_display_image(f->rgb, f->rgb_w, f->rgb_h, 3)
+                    : board_display_image(f->pix, f->width, f->height, 1)) == 0) {
             for (int i = 0; i < n; i++) {
-                bool target = i == tracker_target_index();
-                board_display_box(boxes[i].x, boxes[i].y, boxes[i].w, boxes[i].h,
+                bool target = i == tracker_target_index() && orch_state() == ORCH_TRACK;
+                board_display_box(k * boxes[i].x, k * boxes[i].y, k * boxes[i].w, k * boxes[i].h,
                                   target ? 0 : 255, target ? 255 : 200, 0, target ? 3 : 2);
             }
             // Centre mark: the tracker drives the target onto it.
-            board_display_box(f->width / 2 - 2, f->height / 2 - 2, 5, 5, 255, 255, 255, 1);
+            board_display_box(k * f->width / 2 - 2, k * f->height / 2 - 2, 5, 5, 255, 255, 255, 1);
+            static const uint8_t bar[4][3] = {{220, 0, 0}, {0, 90, 255}, {0, 220, 0}, {255, 200, 0}};
+            const uint8_t *col = bar[orch_state()];
+            board_display_box(0, 0, k * f->width, 3 * k, col[0], col[1], col[2], 2 * k);
         }
         st_add_cyc(ST_DISPLAY, cycles() - c);
         st_add_cyc(ST_FRAME, cycles() - cf);
@@ -119,8 +131,11 @@ void waldo_poll(void)
             for (uint32_t i = 0; i < (uint32_t)f->width * f->height; i++) mean += f->pix[i];
             mean /= (uint32_t)f->width * f->height;
         }
-        printf("camera link: %lu ok, %lu bad, %lu lost chunks, %.1f fps, brightness %lu\n",
-               (unsigned long)ok, (unsigned long)bad, (unsigned long)lost, (double)fps, (unsigned long)mean);
+        printf("camera link: %lu ok, %lu bad, %lu lost chunks, %.1f fps, brightness %lu, %s %ux%u, JPEG decode %lu us\n",
+               (unsigned long)ok, (unsigned long)bad, (unsigned long)lost, (double)fps, (unsigned long)mean,
+               f && f->rgb ? "colour" : "gray", f ? f->width : 0, f ? f->height : 0,
+               (unsigned long)camlink_decode_us());
+        orch_print(now);
         tracker_print();
         st_print(now - last_stats);
         float r0, r1;
@@ -134,7 +149,10 @@ void waldo_poll(void)
     }
     // Voice: the keyword spotter listens all the time.
     int word = kws_listen(now);
-    if (word >= 0) printf("HEARD: %s\n", kws_label(word));
+    if (word >= 0) {
+        printf("HEARD: %s\n", kws_label(word));
+        orch_word(kws_label(word), now);
+    }
 
     if (now - last >= 20) {
         motion_tick((now - last) / 1000.0f);
@@ -157,4 +175,5 @@ void waldo_home(void)
 {
     motion_set(AXIS_PAN, 0);
     motion_set(AXIS_TILT, 0);
+    orch_init(ms);   // start in SENTRY, looking ahead
 }

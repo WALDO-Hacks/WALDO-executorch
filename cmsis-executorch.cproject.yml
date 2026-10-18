@@ -43,8 +43,11 @@ project:
         - file: ./src/waldo/servo_hw.c
         - file: ./src/waldo/camlink_rx.cpp
         - file: ./src/waldo/tracker.cpp
+        - file: ./src/waldo/orchestrator.cpp
         - file: ./src/waldo/face_detect_adapter.cpp
         - file: ./src/waldo/mic.c
+        - file: ./src/waldo/jpeg_frame.c
+        - file: ./src/waldo/tjpgd/tjpgd.c
         - file: ./src/waldo/kws_mfcc.c
         - file: ./src/kws.cpp
         - file: ./src/kws_pte.c

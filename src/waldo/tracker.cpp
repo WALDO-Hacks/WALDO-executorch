@@ -10,10 +10,10 @@ static struct {
     float kp = 0.35f;           // fraction of the angle error corrected per frame
     float deadband = 1.5f;      // degrees
     int sign_pan = 1, sign_tilt = 1;
-    uint32_t home_after_ms = 5000;
 } cfg;
 
 static int target_index = -1;
+static int switch_dir;   // pending tracker_switch()
 
 static struct {
     bool has_target, at_home = true;
@@ -27,13 +27,7 @@ void tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
     if (n == 0) {
         target_index = -1;
         st.has_target = false;
-        if (!st.at_home && now - st.last_seen_ms > cfg.home_after_ms) {
-            // Look straight ahead again so the camera can find the next target.
-            motion_set(AXIS_PAN, 0);
-            motion_set(AXIS_TILT, 0);
-            st.at_home = true;
-        }
-        return;
+        return;   // what to do about a lost target is the orchestrator's call
     }
 
     // Stay on the target we were following if it's still there, else take the biggest.
@@ -47,6 +41,33 @@ void tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
             best = score;
             pick = i;
         }
+    }
+
+    // A requested switch: the nearest other box in that direction, if there is one.
+    if (switch_dir && st.has_target) {
+        int alt = -1;
+        float alt_d = 1e9f;
+        for (int i = 0; i < n; i++) {
+            float dx = b[i].x + b[i].w / 2.0f - st.cx, dy = b[i].y + b[i].h / 2.0f - st.cy;
+            float margin = st.w / 2;
+            bool ok = switch_dir == TRACK_SWITCH_LEFT ? dx < -margin
+                    : switch_dir == TRACK_SWITCH_RIGHT ? dx > margin
+                    : switch_dir == TRACK_SWITCH_UP ? dy < -margin
+                    : switch_dir == TRACK_SWITCH_DOWN ? dy > margin
+                    : hypotf(dx, dy) > margin;
+            float d = hypotf(dx, dy);
+            if (ok && d < alt_d) {
+                alt_d = d;
+                alt = i;
+            }
+        }
+        if (alt >= 0) {
+            pick = alt;
+            printf("track: switched target\n");
+        } else {
+            printf("track: no other target that way\n");
+        }
+        switch_dir = 0;
     }
     target_index = pick;
     st.cx = b[pick].x + b[pick].w / 2.0f;
@@ -77,3 +98,5 @@ void tracker_print(void)
 }
 
 int tracker_target_index(void) { return target_index; }
+
+void tracker_switch(int dir) { switch_dir = dir; }

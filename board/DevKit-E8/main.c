@@ -49,15 +49,16 @@ static void vbat_init(void)
                         VBAT_PWR_CTRL_DPHY_PLL_ISO);
 }
 
-/* SRAM0 is off at reset when booting from MRAM without a debugger. The NPU can only
- * reach SRAM (not the core's DTCM), so the ExecuTorch pools live there: power it
- * on before anything uses it. */
-static void sram0_power_on(void)
+/* SRAM0 and SRAM1 are off at reset when booting from MRAM without a debugger. The NPU
+ * can only reach SRAM (not the core's DTCM), so the ExecuTorch pools live there, and
+ * the colour camera frames in SRAM1: power both on before anything uses them. */
+static void sram_power_on(void)
 {
     uint32_t err = 0;
-    uint32_t ret = SERVICES_power_memory_req(se_services_s_handle, POWER_MEM_SRAM_0_ENABLE, &err);
+    uint32_t ret = SERVICES_power_memory_req(se_services_s_handle,
+                                             POWER_MEM_SRAM_0_ENABLE | POWER_MEM_SRAM_1_ENABLE, &err);
 
-    printf("SRAM0 power on: ret %lu, err %lu\n", (unsigned long)ret, (unsigned long)err);
+    printf("SRAM0+1 power on: ret %lu, err %lu\n", (unsigned long)ret, (unsigned long)err);
 }
 
 int main(void)
@@ -85,7 +86,7 @@ int main(void)
 
     /* Initialize STDIO (UART4 on the PRG USB connector) */
     stdio_init();
-    sram0_power_on();
+    sram_power_on();
 
     #if defined(ETHOSU_ARCH)
     /* Initialize Ethos NPU */
