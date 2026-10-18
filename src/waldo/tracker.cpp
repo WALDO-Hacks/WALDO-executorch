@@ -86,6 +86,19 @@ static bool is_target_class(int cls)
     return cls == target_cls;
 }
 
+// Latch: once a person is picked, only that person is followed. Another person who appears, is
+// bigger or walks in front is ignored. The latch ends when the target has not been matched for
+// kLatchMs of processed frames (it disappeared; a "stop" pause does not count), or on a voice
+// command (switch, "no", "yes", a new class). Without it the biggest person wins every frame.
+// There is no appearance model: "the same person" means "inside the prediction gate".
+constexpr uint32_t kLatchMs = 4000;     // unmatched this long -> the latch ends
+constexpr float kLatchGateBaseDeg = 14; // gate around the predicted place, plus the target's box width
+constexpr float kLatchGateDriftDegS = 2;    // plus this much per second unseen (a still person: little; a moving one widens it by its speed)
+constexpr float kLatchMaxSpeedDegS = 80; // the speed estimate widens the gate by at most this per second
+constexpr float kLatchGateMaxDeg = 35;  // never wider than this: about the field of view
+static bool latched;
+static uint32_t last_update_ms, miss_ms;
+
 static struct {
     bool has_target, at_home = true;
     float cx, cy, w;
@@ -106,12 +119,37 @@ bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
     turret_at(now - kFrameAgeMs, &pan_then, &tilt_then);
     const float pdt = (now - kf_t) / 1000.0f;
     const bool predict = kf_on && now - kf_t <= kFreshMs + kSearchMs;
+    // Time since the last update, capped so a pause with no updates ("stop") isn't counted as lost.
+    const uint32_t since_update = last_update_ms && (int32_t)(now - last_update_ms) > 0
+                                      ? (now - last_update_ms < 500 ? now - last_update_ms : 500) : 0;
+    last_update_ms = now;
     int pick = -1;
     float best = -1;
     for (int i = 0; i < n; i++) {
         if (!is_target_class(b[i].cls)) continue;
         float cx = b[i].x + b[i].w / 2.0f, cy = b[i].y + b[i].h / 2.0f;
         float score = (float)b[i].w * b[i].h;
+        if (latched) {
+            // Only the latched person may be picked: a box must be inside a gate around where it was
+            // last seen, however big it is. A movement box never takes a latched target.
+            if (b[i].cls == DET_MOTION) continue;
+            float d, gate;
+            if (predict) {
+                const float a_pan = pan_then - (cx - img_w / 2.0f) * deg_px * cfg.sign_pan;
+                const float a_tilt = tilt_then - (cy - img_h / 2.0f) * deg_px * cfg.sign_tilt;
+                // Around where it was last seen, not where the speed says it is now: the speed
+                // estimate is noisy (it can read 100+ deg/s for a person walking), so it only widens
+                // the gate, capped.
+                d = hypotf(a_pan - kf[AXIS_PAN].th, a_tilt - kf[AXIS_TILT].th);
+                const float v = fminf(hypotf(kf[AXIS_PAN].v, kf[AXIS_TILT].v), kLatchMaxSpeedDegS);
+                gate = kLatchGateBaseDeg + st.w * deg_px + (v + kLatchGateDriftDegS) * pdt;
+            } else {   // no usable speed estimate (just switched, or paused): compare with where it was seen
+                d = hypotf(cx - st.cx, cy - st.cy) * deg_px;
+                gate = (1.5f * st.w + 8) * deg_px + kLatchGateDriftDegS * (miss_ms / 1000.0f);
+            }
+            if (gate > kLatchGateMaxDeg) gate = kLatchGateMaxDeg;
+            if (d >= gate) continue;   // not the latched person; among those that are, the usual scoring below
+        }
         if (predict) {
             const float a_pan = pan_then - (cx - img_w / 2.0f) * deg_px * cfg.sign_pan;
             const float a_tilt = tilt_then - (cy - img_h / 2.0f) * deg_px * cfg.sign_tilt;
@@ -184,8 +222,22 @@ bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
     if (pick < 0) {
         target_index = -1;
         st.has_target = false;
+        if (latched) {
+            miss_ms += since_update;
+            if (miss_ms > kLatchMs) {   // gone: whoever shows up next is a new target
+                printf("track: latched target gone for %lu ms, latch released\n", (unsigned long)miss_ms);
+                latched = false;
+                kf_on = false;
+            }
+        }
         return false;   // what to do about a lost target is the orchestrator's call
     }
+    // Latch on what was picked (not on a movement box: that only turns the gaze).
+    if (b[pick].cls != DET_MOTION) {
+        if (!latched) printf("track: latched onto a %s\n", detect_class_name(b[pick].cls));
+        latched = true;
+    }
+    miss_ms = 0;
     target_index = pick;
     st.cx = b[pick].x + b[pick].w / 2.0f;
     // Aim at the centre of the box (people and objects alike), so the beam and the screen's
@@ -291,8 +343,19 @@ void tracker_reset_target(void)
     tracker_lose_target();
 }
 
+void tracker_pause(void)
+{
+    // Keeps the latch, the class and where it was seen; only the speed is stale.
+    kf_on = false;
+    switch_dir = 0;
+}
+
+bool tracker_latched(void) { return latched; }
+
 void tracker_lose_target(void)
 {
+    latched = false;
+    miss_ms = 0;
     st.has_target = false;
     target_index = -1;
     switch_dir = 0;

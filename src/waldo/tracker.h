@@ -30,7 +30,14 @@ void tracker_switch(int dir, uint32_t now_ms);
 // Drop the current target and go back to following people.
 void tracker_reset_target(void);
 // Drop the current target (lost, or the turret moves on) but keep following its class.
+// This also ends the latch.
 void tracker_lose_target(void);
+// Latch: once a target is picked, only that one is followed (no other person, however big, takes
+// over) until it has gone unmatched for 4 s of processed frames, or a voice command changes it
+// (tracker_switch, tracker_reset_target, tracker_set_target_class, tracker_lose_target).
+bool tracker_latched(void);
+// "stop": the turret freezes. Keeps the latch and the target's last place, drops the stale speed.
+void tracker_pause(void);
 // Follow this YOLO class from now on (0 = people), e.g. a "track cup" command. The class
 // stays until another one is chosen: tracker_switch(), this, or tracker_reset_target().
 void tracker_set_target_class(int cls);
