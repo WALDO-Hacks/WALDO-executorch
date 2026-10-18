@@ -40,7 +40,7 @@ void waldo_view_status(const struct view_status *s)
     const bool fresh = s->heard && s->heard_age_ms < 2000;   // a new word stands out for 2 s
     snprintf(bottom, sizeof bottom, "%s|%s|%d", heard, perf, fresh);
 
-    const int w = BOARD_DISPLAY_W, h = BOARD_DISPLAY_H;
+    const int w = BOARD_DISPLAY_WIDTH, h = BOARD_DISPLAY_HEIGHT;
     if (strcmp(top, last_top) != 0) {
         const uint8_t *c = kStateColour[s->state];
         board_display_fill(0, 0, w, 80, 0, 0, 0);

@@ -12,8 +12,8 @@ int board_display_image(const uint8_t *rgb, int width, int height, int channels)
 void board_display_box(int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b, int thick);
 /* Panel size, and drawing in panel pixels: a filled rectangle, and text in a 6x11 font
    scaled by scale (returns the x after the text). */
-#define BOARD_DISPLAY_W 480
-#define BOARD_DISPLAY_H 800
+#define BOARD_DISPLAY_WIDTH  480
+#define BOARD_DISPLAY_HEIGHT 800
 void board_display_fill(int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b);
 int board_display_text(int x, int y, const char *text, uint8_t r, uint8_t g, uint8_t b, int scale);
 
