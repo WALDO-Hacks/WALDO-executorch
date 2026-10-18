@@ -2,8 +2,10 @@
 // camera frame and each voice command. The tracker steers; this decides when and at what.
 //
 //   PARKED  head down, vision off; only "on" / "go" wakes it
-//   SENTRY  looking ahead, waiting: motion detection every frame (CPU, no model) and the
-//           detector every 4th frame; motion or a target -> TRACK
+//   SENTRY  waiting: at home, motion detection every frame (CPU, no model) and the detector
+//           every 4th frame; after 4 quiet seconds it patrols a Z of 10 stops (move, settle,
+//           look) and runs the detector only where the view changed since the last lap or
+//           something moves (plus every 3rd lap); motion or a target -> TRACK
 //   TRACK   detector every frame, the tracker follows the target; lost for 5 s -> SENTRY
 //   HOLD    "stop": the turret freezes but keeps looking; "go" resumes
 //
@@ -26,4 +28,6 @@ void orch_frame(const struct cam_frame *f, uint32_t now_ms, struct det_box *boxe
 void orch_word(const char *word, uint32_t now_ms);
 enum orch_state orch_state(void);
 const char *orch_state_name(enum orch_state s);
+// What SENTRY is doing ("scan 3/10"), or NULL.
+const char *orch_detail(void);
 void orch_print(uint32_t now_ms);

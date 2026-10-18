@@ -21,6 +21,35 @@ constexpr int kCellThresh = 18;              // grey levels
 constexpr int kMinCells = 3;
 constexpr uint32_t kSettleMs = 600;          // ignore motion this long after the turret moved
 
+// Patrol (SENTRY after a quiet spell at home): move, settle, look, along a Z of stops
+// (left to right at tilt 0, back right to left at tilt 20). Stops are 35 degrees apart:
+// the rotated camera sees about 45 degrees across, so neighbouring views overlap.
+// Each stop remembers a coarse picture of itself; YOLO runs only where the picture
+// changed since the last lap, where something moves, on a first visit, or every few laps.
+constexpr uint32_t kPatrolAfterMs = 4000;    // quiet at home this long -> start patrolling
+constexpr uint32_t kLookMs = 700;            // time spent looking at each stop
+constexpr int kRecheckLaps = 3;              // YOLO at every stop at least every 3 laps
+constexpr int kInvestigateFrames = 6;        // detector frames after motion during a look
+constexpr int kBgThresh = 20;                // grey levels per cell
+constexpr int kBgMinCells = 3;
+struct stop_t { float pan, tilt; };
+constexpr stop_t kStops[] = {{70, 0}, {35, 0}, {0, 0}, {-35, 0}, {-70, 0},
+                             {-70, 20}, {-35, 20}, {0, 20}, {35, 20}, {70, 20}};
+constexpr int kNumStops = sizeof(kStops) / sizeof(kStops[0]);
+constexpr int kBgCells = (CAM_MAX_W / kCell) * (CAM_MAX_H / kCell);   // 300
+
+enum patrol_phase { P_HOME, P_MOVE, P_SETTLE, P_LOOK };
+struct {
+    patrol_phase phase = P_HOME;
+    int stop, lap, investigate;
+    uint32_t t;
+    bool run_yolo;
+    uint8_t bg[kNumStops][kBgCells];
+    bool bg_valid[kNumStops];
+    int laps_since_yolo[kNumStops];
+    uint32_t looks, yolo_looks;
+} patrol;
+
 enum orch_state state = ORCH_SENTRY;
 uint32_t state_since, last_target_ms, last_move_ms, frames_in_state;
 uint8_t prev[CAM_MAX_W * CAM_MAX_H];
@@ -44,6 +73,9 @@ void enter(enum orch_state s, uint32_t now)
         motion_set(AXIS_TILT, 0);
         tracker_reset_target();   // back to looking for people
         last_move_ms = now;
+        patrol.phase = P_HOME;
+        patrol.t = now;
+        patrol.investigate = 0;
     } else if (s == ORCH_HOLD) {
         // Freeze where the turret is now, not where it was heading.
         motion_set(AXIS_PAN, motion_pos(AXIS_PAN));
@@ -93,7 +125,129 @@ bool motion_seen(const struct cam_frame *f, uint32_t now, float *mx, float *my)
     return hit;
 }
 
+// Coarse picture: the mean of each 8x8 cell.
+int cells_of(const struct cam_frame *f, uint8_t *out, int *cw, int *ch)
+{
+    *cw = f->width / kCell;
+    *ch = f->height / kCell;
+    for (int cy = 0; cy < *ch; cy++)
+        for (int cx = 0; cx < *cw; cx++) {
+            int sum = 0;
+            for (int y = 0; y < kCell; y++) {
+                const uint8_t *row = f->pix + (cy * kCell + y) * f->width + cx * kCell;
+                for (int x = 0; x < kCell; x++) sum += row[x];
+            }
+            out[cy * *cw + cx] = (uint8_t)(sum / (kCell * kCell));
+        }
+    return *cw * *ch;
+}
+
+// Changed cells between this stop's last picture and now. A servo never lands on exactly
+// the same spot twice, so each cell is compared with the best of its neighbours too.
+int changed_cells(const uint8_t *a, const uint8_t *b, int cw, int ch)
+{
+    int n = 0;
+    for (int y = 0; y < ch; y++)
+        for (int x = 0; x < cw; x++) {
+            int best = 255;
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++) {
+                    const int yy = y + dy, xx = x + dx;
+                    if (yy < 0 || yy >= ch || xx < 0 || xx >= cw) continue;
+                    const int d = abs(a[y * cw + x] - b[yy * cw + xx]);
+                    if (d < best) best = d;
+                }
+            if (best > kBgThresh) n++;
+        }
+    return n;
+}
+
+void go_to_stop(int i, uint32_t now)
+{
+    patrol.stop = i;
+    patrol.phase = P_MOVE;
+    patrol.t = now;
+    motion_set(AXIS_PAN, kStops[i].pan);
+    motion_set(AXIS_TILT, kStops[i].tilt);
+    last_move_ms = now;
+    have_prev = false;
+}
+
+// One SENTRY frame: home, or a patrol step. Returns true if the detector should run on it.
+bool sentry_step(const struct cam_frame *f, uint32_t now)
+{
+    float mx, my;
+    const bool moved = motion_seen(f, now, &mx, &my);
+    if (moved) {
+        n_motion++;
+        // Turn toward the movement; the detector then looks at what moved.
+        struct det_box m = {(int)mx - 4, (int)my - 4, 8, 8, 1.0f, DET_MOTION};
+        tracker_update(&m, 1, f->width, f->height, now);
+        last_move_ms = now;
+        patrol.investigate = kInvestigateFrames;
+        printf("orch: motion at %.0f,%.0f\n", (double)mx, (double)my);
+    }
+    if (patrol.investigate > 0) {   // something moved: look properly before going on
+        patrol.investigate--;
+        if (patrol.investigate == 0 && patrol.phase != P_HOME) go_to_stop((patrol.stop + 1) % kNumStops, now);
+        return true;
+    }
+
+    switch (patrol.phase) {
+    case P_HOME:
+        if (now - patrol.t >= kPatrolAfterMs) {
+            patrol.lap = 0;
+            go_to_stop(0, now);
+            return false;
+        }
+        return frames_in_state % kSentryDetectEvery == 0;
+    case P_MOVE:
+        last_move_ms = now;
+        if (!turret_moving()) {
+            patrol.phase = P_SETTLE;
+            patrol.t = now;
+        }
+        return false;
+    case P_SETTLE:
+        if (now - patrol.t < kSettleMs) return false;
+        {
+            // Compare with this stop's picture from the last lap.
+            uint8_t cur[kBgCells];
+            int cw, ch;
+            cells_of(f, cur, &cw, &ch);
+            const int i = patrol.stop;
+            const int changed = patrol.bg_valid[i] ? changed_cells(cur, patrol.bg[i], cw, ch) : -1;
+            patrol.run_yolo = changed < 0 || changed >= kBgMinCells || patrol.laps_since_yolo[i] >= kRecheckLaps;
+            memcpy(patrol.bg[i], cur, (size_t)cw * ch);
+            patrol.bg_valid[i] = true;
+            patrol.laps_since_yolo[i] = patrol.run_yolo ? 0 : patrol.laps_since_yolo[i] + 1;
+            patrol.looks++;
+            patrol.yolo_looks += patrol.run_yolo;
+            if (changed >= kBgMinCells) printf("orch: stop %d changed (%d cells)\n", i, changed);
+            patrol.phase = P_LOOK;
+            patrol.t = now;
+            return patrol.run_yolo;
+        }
+    case P_LOOK:
+        if (now - patrol.t >= kLookMs) {
+            const int next = (patrol.stop + 1) % kNumStops;
+            if (next == 0) patrol.lap++;
+            go_to_stop(next, now);
+        }
+        return false;
+    }
+    return false;
+}
+
 }  // namespace
+
+const char *orch_detail(void)
+{
+    static char buf[24];
+    if (state != ORCH_SENTRY || patrol.phase == P_HOME) return nullptr;
+    snprintf(buf, sizeof buf, "scan %d/%d", patrol.stop + 1, kNumStops);
+    return buf;
+}
 
 const char *orch_state_name(enum orch_state s)
 {
@@ -108,6 +262,9 @@ void orch_init(uint32_t now)
     state = ORCH_SENTRY;
     state_since = last_target_ms = now;
     last_move_ms = now;
+    patrol.phase = P_HOME;
+    patrol.t = now;
+    patrol.investigate = 0;
 }
 
 void orch_frame(const struct cam_frame *f, uint32_t now, struct det_box *boxes, int max, int *n_out)
@@ -116,18 +273,7 @@ void orch_frame(const struct cam_frame *f, uint32_t now, struct det_box *boxes, 
     frames_in_state++;
     if (state == ORCH_PARKED) return;
 
-    if (state == ORCH_SENTRY) {
-        float mx, my;
-        if (motion_seen(f, now, &mx, &my)) {
-            n_motion++;
-            // Turn toward the movement; the detector then finds what moved.
-            struct det_box m = {(int)mx - 4, (int)my - 4, 8, 8, 1.0f, DET_MOTION};
-            tracker_update(&m, 1, f->width, f->height, now);
-            last_move_ms = now;
-            printf("orch: motion at %.0f,%.0f\n", (double)mx, (double)my);
-        }
-        if (frames_in_state % kSentryDetectEvery != 0) return;
-    }
+    if (state == ORCH_SENTRY && !sentry_step(f, now)) return;
 
     const int n = detect(f, boxes, max);
     *n_out = n;
@@ -174,7 +320,8 @@ void orch_word(const char *w, uint32_t now)
 
 void orch_print(uint32_t now)
 {
-    printf("orch: %s for %lu s, following %s, %lu motion events\n", orch_state_name(state),
-           (unsigned long)((now - state_since) / 1000), detect_class_name(tracker_target_class()),
-           (unsigned long)n_motion);
+    printf("orch: %s for %lu s, following %s, %lu motion events, patrol: YOLO at %lu of %lu stops looked at\n",
+           orch_state_name(state), (unsigned long)((now - state_since) / 1000),
+           detect_class_name(tracker_target_class()), (unsigned long)n_motion,
+           (unsigned long)patrol.yolo_looks, (unsigned long)patrol.looks);
 }

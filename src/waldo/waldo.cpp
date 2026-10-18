@@ -121,7 +121,8 @@ void waldo_poll(void)
             fps_frames = 0;
             fps_t0 = now;
         }
-        const struct view_status vs = {orch_state(), detect_class_name(tracker_target_class()), heard_word,
+        const char *detail = orch_detail();   // "scan 3/10" while patrolling
+        const struct view_status vs = {orch_state(), detail ? detail : detect_class_name(tracker_target_class()), heard_word,
                                        now - heard_ms, shown_fps, last_npu_us, last_frame_us};
         waldo_view_status(&vs);
     }

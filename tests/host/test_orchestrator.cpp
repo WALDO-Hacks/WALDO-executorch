@@ -27,6 +27,19 @@ static void pwm(int, float) {}
 static cam_frame frame;
 static uint32_t now;
 
+// A simulated room for the patrol: what the camera sees depends on where the turret
+// points; a bright box appears at one spot when `object_at_stop` is set.
+static bool room, object_at_stop;
+static void render_room()
+{
+    const float pan = motion_pos(AXIS_PAN), tilt = motion_pos(AXIS_TILT);
+    for (int y = 0; y < 120; y++)
+        for (int x = 0; x < 160; x++)
+            frame.pix[y * 160 + x] = (uint8_t)(60 + ((x + (int)(pan * 2.7f)) / 16 % 4) * 30 + ((y - (int)(tilt * 2.7f)) / 20 % 3) * 15);
+    if (object_at_stop && fabsf(pan + 35) < 1 && fabsf(tilt) < 1)
+        for (int y = 40; y < 90; y++) memset(frame.pix + y * 160 + 60, 250, 40);
+}
+
 // One camera frame every 100 ms; the motion layer ticks every 20 ms in between.
 static int step(int frames = 1)
 {
@@ -38,6 +51,7 @@ static int step(int frames = 1)
             motion_tick(0.02f);
         }
         frame.count++;
+        if (room) render_room();
         orch_frame(&frame, now, boxes, 8, &n);
     }
     return n;
@@ -113,14 +127,15 @@ int main()
     step(60);
     CHECK(orch_state() == ORCH_SENTRY);
 
-    // Target gone for 5 s -> SENTRY, looking straight ahead.
+    // Back in SENTRY: looking straight ahead.
     script_n = 0;
-    step(60);
+    orch_word("off", now);
+    orch_word("on", now);
     CHECK(orch_state() == ORCH_SENTRY);
     CHECK(fabsf(motion_target(AXIS_PAN)) < 0.01f && fabsf(motion_target(AXIS_TILT)) < 0.01f);
 
     // Motion in SENTRY: something changes on the left of the picture -> the turret turns there.
-    step(10);   // settle
+    step(10);   // settle (still at home: the patrol starts after 4 quiet seconds)
     for (int y = 40; y < 80; y++) memset(frame.pix + y * 160 + 10, 250, 30);
     step(1);
     CHECK(motion_target(AXIS_PAN) > 2);
@@ -143,6 +158,53 @@ int main()
     float tilt = motion_target(AXIS_TILT);
     orch_word("up", now);
     CHECK(motion_target(AXIS_TILT) > tilt + 5);
+
+    // Patrol: after 4 quiet seconds SENTRY walks a Z of 10 stops. YOLO runs at every stop on
+    // the first lap, nowhere on a lap where nothing changed, and only where something
+    // appeared on the next.
+    script_n = 0;
+    room = true;
+    orch_word("off", now);
+    orch_word("on", now);
+    auto run_lap = [&](int *calls, float *pan_min, float *pan_max, float *tilt_max) {
+        // until the patrol is back at stop 1 after stop 10
+        bool seen_last = false;
+        detect_calls = 0;
+        *pan_min = 1e9f, *pan_max = -1e9f, *tilt_max = -1e9f;
+        for (int i = 0; i < 2000; i++) {
+            step(1);
+            const char *d = orch_detail();
+            if (d && !strcmp(d, "scan 10/10")) seen_last = true;
+            if (d && seen_last && !strcmp(d, "scan 1/10")) break;
+            *pan_min = fminf(*pan_min, motion_pos(AXIS_PAN));
+            *pan_max = fmaxf(*pan_max, motion_pos(AXIS_PAN));
+            *tilt_max = fmaxf(*tilt_max, motion_pos(AXIS_TILT));
+        }
+        *calls = detect_calls;
+    };
+    int calls;
+    float pmin, pmax, tmax;
+    step(45);   // the quiet spell at home, then on to stop 1
+    CHECK(orch_detail() && !strcmp(orch_detail(), "scan 1/10"));
+    run_lap(&calls, &pmin, &pmax, &tmax);
+    printf("patrol lap 1: YOLO at %d stops, pan %.0f..%.0f, tilt up to %.0f\n", calls, pmin, pmax, tmax);
+    CHECK(calls == 10);
+    CHECK(pmin < -65 && pmax > 65 && tmax > 15);
+    run_lap(&calls, &pmin, &pmax, &tmax);
+    printf("patrol lap 2 (nothing changed): YOLO at %d stops\n", calls);
+    CHECK(calls == 0);
+    object_at_stop = true;
+    run_lap(&calls, &pmin, &pmax, &tmax);
+    printf("patrol lap 3 (an object appeared at one stop): YOLO at %d stops\n", calls);
+    CHECK(calls == 1);
+    CHECK(orch_state() == ORCH_SENTRY);
+
+    // A person at a stop -> TRACK.
+    script[0] = {70, 50, 20, 20, 0.9f, 0};
+    script_n = 1;
+    object_at_stop = false;   // the view changes back: YOLO runs there and finds the person
+    for (int i = 0; i < 400 && orch_state() != ORCH_TRACK; i++) step(1);
+    CHECK(orch_state() == ORCH_TRACK);
 
     printf("orchestrator: all checks passed\n");
     return 0;
