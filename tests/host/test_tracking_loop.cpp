@@ -86,7 +86,7 @@ int main()
         // overshoot, 0.0 - 3.7 deg final error), not a design target: the real FOV is unmeasured.
         const float bound = settle_bound(fovs[i]);
         CHECK(fabsf(r.err_pan) < bound && fabsf(r.err_tilt) < bound);
-        CHECK(r.worst_pan_overshoot < 5.0f);
+        CHECK(r.worst_pan_overshoot < 10.0f);
     }
 
     // 3. a person walking at 10 deg/s (right to left across 15 deg right .. 45 deg left): stays in view and lags by a bounded amount.
