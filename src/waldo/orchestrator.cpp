@@ -14,7 +14,6 @@ constexpr uint32_t kLostToSentryMs = 4000;   // no target this long while tracki
                                              // (the tracker coasts, then searches, before that)
 constexpr int kSentryDetectEvery = 2;        // frames (YOLO is ~30 ms with int8 I/O)
 constexpr float kNudgeDeg = 10.0f;
-constexpr float kParkTilt = -90.0f;
 
 // Motion detection: mean absolute difference per 8x8 cell between consecutive frames.
 constexpr int kCell = 8;
@@ -85,7 +84,7 @@ void enter(enum orch_state s, uint32_t now)
     frames_in_state = 0;
     if (s == ORCH_PARKED) {
         motion_set(AXIS_PAN, 0);
-        motion_set(AXIS_TILT, kParkTilt);
+        motion_set(AXIS_TILT, PARK_TILT);   // as low as is safe for the laser (servo_cal.h)
         last_move_ms = now;
     } else if (s == ORCH_SENTRY && state_before_enter == ORCH_TRACK) {
         // Lost a target: patrol on from the nearest stop at once, no trip home first, still

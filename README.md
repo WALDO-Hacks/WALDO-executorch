@@ -88,7 +88,7 @@ stateDiagram-v2
 
 | State | What runs | Turret |
 |---|---|---|
-| PARKED | microphones only | head down, light into the deck |
+| PARKED | microphones only | head down as far as the laser allows (`TILT_MIN_DEG`), light on the deck |
 | SENTRY | motion on every frame (CPU); YOLO only where the patrol memory says something changed | patrols: move, settle, look |
 | TRACK | YOLO on every frame | follows the target |
 | HOLD | YOLO on every frame | frozen |

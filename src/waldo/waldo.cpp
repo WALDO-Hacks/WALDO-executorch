@@ -82,7 +82,10 @@ int waldo_init(void)
     for (int step = 0;; step++) {
         const float us = (step % 4 == 1) ? 1722.0f : (step % 4 == 3) ? 1278.0f : 1500.0f;
         servo_hw_write_us(0, us);
-        servo_hw_write_us(1, us);
+        // Tilt never below TILT_MIN_DEG (the laser under the flashlight): -20 only if allowed.
+        const float tilt_deg = CAL_TILT.sign * (us - 1500.0f) / CAL_TILT.us_per_deg;
+        const float tilt_ok = tilt_deg < TILT_MIN_DEG ? TILT_MIN_DEG : tilt_deg;
+        servo_hw_write_us(1, 1500.0f + CAL_TILT.sign * tilt_ok * CAL_TILT.us_per_deg);
         printf("WALDO: servo zero: %s\n", us > 1500 ? "+20" : us < 1500 ? "-20" : "centre");
         const uint32_t t = ms;
         while (ms - t < (us == 1500.0f ? 3000u : 1000u)) __WFI();
@@ -207,7 +210,7 @@ void waldo_poll(void)
 
 void waldo_servo_test(void)
 {
-    static const float steps[][2] = {{30, -90}, {0, -90}, {0, 0}, {0, -90}};
+    static const float steps[][2] = {{30, PARK_TILT}, {0, PARK_TILT}, {0, 0}, {0, PARK_TILT}};
     for (auto &s : steps) {
         printf("WALDO: aim pan %.0f tilt %.0f\n", (double)s[0], (double)s[1]);
         motion_set(AXIS_PAN, s[0]);

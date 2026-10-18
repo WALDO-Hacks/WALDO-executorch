@@ -242,16 +242,17 @@ int main()
     step(1);
     CHECK(motion_target(AXIS_PAN) > 2);
 
-    // "off" -> PARKED: head down, the detector never runs; "up" is ignored; "on" wakes it.
+    // "off" -> PARKED: head as far down as is safe for the laser, the detector never runs;
+    // "up" is ignored; "on" wakes it.
     orch_word("off", now);
     CHECK(orch_state() == ORCH_PARKED);
-    CHECK(motion_target(AXIS_TILT) < -45);
+    CHECK(fabsf(motion_target(AXIS_TILT) - PARK_TILT) < 0.01f && PARK_TILT >= TILT_MIN_DEG);
     detect_calls = 0;
     script[0] = {70, 50, 20, 20, 0.9f, 0};
     script_n = 1;
     step(10);
     orch_word("up", now);
-    CHECK(detect_calls == 0 && orch_state() == ORCH_PARKED && motion_target(AXIS_TILT) < -45);
+    CHECK(detect_calls == 0 && orch_state() == ORCH_PARKED && fabsf(motion_target(AXIS_TILT) - PARK_TILT) < 0.01f);
     orch_word("on", now);
     CHECK(orch_state() == ORCH_SENTRY);
 

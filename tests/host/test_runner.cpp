@@ -24,7 +24,9 @@ int detect(const cam_frame *, det_box *out, int max)
     memcpy(out, script, n * sizeof(det_box));
     return n;
 }
-static void pwm(int, float) {}
+// Every pulse the motion layer writes: the tilt must never go below TILT_MIN_DEG (the laser).
+static float min_tilt_us = 1e9f;
+static void pwm(int axis, float us) { if (axis == AXIS_TILT && us < min_tilt_us) min_tilt_us = us; }
 
 // ---- the simulated world ----
 constexpr int kW = 160, kH = 120;                 // rotated camera frame
@@ -261,15 +263,73 @@ int main()
         CHECK(worst < kHalfW && err_pan(p) < 10);
     }
 
-    // 10. Sits down / stands up: tilt follows, within its limits (-90..+30).
+    // 10. Sits down / stands up: tilt follows, within its limits.
     {
         person p = {0, 0, false, 0};
         start_on(p);
         float worst = 0;
-        for (int i = 0; i < 30; i++) { p.tilt -= 30 * 0.066f; frame_of(&p, 1); worst = fmaxf(worst, err_tilt(p)); }
-        for (int i = 0; i < 30; i++) { p.tilt += 30 * 0.066f; frame_of(&p, 1); worst = fmaxf(worst, err_tilt(p)); }
+        for (int i = 0; i < 15; i++) { p.tilt -= 30 * 0.066f; frame_of(&p, 1); worst = fmaxf(worst, err_tilt(p)); }
+        for (int i = 0; i < 15; i++) { p.tilt += 30 * 0.066f; frame_of(&p, 1); worst = fmaxf(worst, err_tilt(p)); }
         printf("moving down and up at 30 deg/s: worst tilt error %.0f deg\n", worst);
         CHECK(worst < 15);
+    }
+
+    // 10b. Below the reachable range (the laser's dead zone): the turret sits at the limit,
+    //      never past it, and comes straight back up with the target (nothing winds up).
+    {
+        person p = {0, TILT_MIN_DEG + 15, false, 0};
+        start_on(p);
+        float lowest = 1e9f;
+        for (int i = 0; i < 20; i++) { p.tilt -= 40 * 0.066f; frame_of(&p, 1); }   // down to about -73
+        for (int i = 0; i < 45; i++) { frame_of(&p, 1); lowest = fminf(lowest, motion_pos(AXIS_TILT)); }   // 3 s there
+        const float at_floor = motion_pos(AXIS_TILT);
+        p.tilt = TILT_MIN_DEG + 15;   // stands up (a rise that stays in the camera's view)
+        int back = -1;
+        for (int i = 0; i < 30 && back < 0; i++) {
+            frame_of(&p, 1);
+            if (err_tilt(p) < 4) back = i;
+        }
+        // The same rise from a target the turret could follow (no floor): windup would show
+        // as a slower recovery from the floor than from here.
+        person q = {0, TILT_MIN_DEG, false, 0};
+        start_on(q);
+        q.tilt = TILT_MIN_DEG + 15;
+        int back_free = -1;
+        for (int i = 0; i < 30 && back_free < 0; i++) {
+            frame_of(&q, 1);
+            if (err_tilt(q) < 4) back_free = i;
+        }
+        printf("target below the tilt limit (%.0f): turret at %.1f, lowest %.1f; back on it %d frames after it rose "
+               "(%d from the limit with the target there)\n", (double)TILT_MIN_DEG, at_floor, lowest, back, back_free);
+        CHECK(lowest >= TILT_MIN_DEG - 0.01f && at_floor < TILT_MIN_DEG + 3);
+        CHECK(back >= 0 && back <= back_free + 2);   // no windup: as quick as an ordinary step
+    }
+
+    // 10c. Every way of commanding "further down": motion_set(-90), voice "down" over and
+    //      over, "off" (park). The tilt stops at TILT_MIN_DEG.
+    {
+        sim = {};
+        orch_init(now);
+        tracker_reset_target();
+        person nobody = {0, 0, true, 0};
+        motion_set(AXIS_TILT, -90);
+        for (int i = 0; i < 30; i++) frame_of(&nobody, 1);
+        const float after_set = motion_pos(AXIS_TILT);
+        float after_down = 1e9f;   // the lowest it went (the patrol may move it on afterwards)
+        for (int i = 0; i < 12; i++) {
+            orch_word("down", now);
+            frame_of(&nobody, 1);
+            after_down = fminf(after_down, motion_pos(AXIS_TILT));
+        }
+        orch_word("off", now);
+        for (int i = 0; i < 30; i++) frame_of(&nobody, 1);
+        const float parked = motion_pos(AXIS_TILT);
+        orch_word("on", now);
+        printf("commanded -90 / \"down\" x12 / \"off\": tilt %.1f / %.1f / %.1f (limit %.0f)\n", after_set, after_down,
+               parked, (double)TILT_MIN_DEG);
+        CHECK(after_set >= TILT_MIN_DEG && after_down >= TILT_MIN_DEG && parked >= TILT_MIN_DEG);
+        CHECK(fabsf(after_set - TILT_MIN_DEG) < 0.5f && fabsf(after_down - TILT_MIN_DEG) < 0.5f);   // it did go down to it
+        CHECK(fabsf(parked - PARK_TILT) < 0.5f);
     }
 
     // 11. Runs past the pan limit (+90): the turret stops at the limit, then gives up and
@@ -365,6 +425,12 @@ int main()
         printf("clock wraps mid-chase: worst lag %.0f deg (%s)\n", worst, orch_state_name(orch_state()));
         CHECK(worst < 15 && orch_state() == ORCH_TRACK);
     }
+
+    // No pulse ever drove the tilt below the limit, in any scenario.
+    const float floor_us = CAL_TILT.center_us + CAL_TILT.sign * TILT_MIN_DEG * CAL_TILT.us_per_deg;
+    printf("lowest tilt pulse in all scenarios: %.1f us (limit %.1f us = %.0f deg)\n", min_tilt_us, floor_us,
+           (double)TILT_MIN_DEG);
+    CHECK(min_tilt_us >= floor_us - 0.01f);
 
     printf(fails ? "runner: %d check(s) FAILED\n" : "runner: all checks passed\n", fails);
     return fails ? 1 : 0;
