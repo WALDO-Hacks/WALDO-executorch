@@ -22,6 +22,13 @@ project:
       Link:
         - -Wl,-u,_printf_float
 
+  # fvp-sim: the Corstone-320 FVP also runs the turret's YOLOv8n and KWS self-tests.
+  setups:
+    - setup: FVP turret self-tests
+      for-context: +SSE-320-U85
+      define:
+        - WALDO_FVP_TURRET
+
   groups:
     - group: App
       files:
@@ -50,6 +57,20 @@ project:
         - file: ./src/waldo/face_detect_adapter.cpp
         - file: ./src/waldo/mic.c
         - file: ./src/waldo/brain_hp.cpp
+        - file: ./src/waldo/jpeg_frame.c
+        - file: ./src/waldo/tjpgd/tjpgd.c
+        - file: ./src/waldo/kws_mfcc.c
+        - file: ./src/kws.cpp
+        - file: ./src/kws_pte.c
+        - file: ./src/yolo_detector.cpp
+        - file: ./src/yolo_pte.S
+          define:
+            - YOLO_PTE_PATH: \"$ProjectDir()$/model/yolo/yolo.pte\"
+
+    # fvp-sim: the turret's models and their self-test code on the Corstone-320 FVP.
+    - group: FVP-Turret
+      for-context: +SSE-320-U85
+      files:
         - file: ./src/waldo/jpeg_frame.c
         - file: ./src/waldo/tjpgd/tjpgd.c
         - file: ./src/waldo/kws_mfcc.c

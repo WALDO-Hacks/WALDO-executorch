@@ -1,0 +1,71 @@
+# fvp-sim: run WALDO's turret models (YOLOv8n and MicroNet KWS) on Arm's Fixed Virtual
+# Platforms before the hardware test. GCC only, the shipped ai_layer/ (no model-export venv).
+name: FVP turret self-tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fvp-sim]
+
+env:
+  SOLUTION: cmsis-executorch
+  TARGET: SSE-320-U85
+
+jobs:
+  corstone-320-u85:
+    name: YOLOv8n + KWS on Corstone-320 (Ethos-U85-256)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        uses: ARM-software/cmsis-actions/vcpkg@v1
+
+      - name: Activate Arm tool license
+        uses: ARM-software/cmsis-actions/armlm@v1
+
+      # The FVP loads libpython3.11; see build.yml.
+      - name: Set up Python 3.11 for the FVP
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache packs
+        uses: actions/cache@v4
+        with:
+          key: cmsis-packs-fvp-${{ hashFiles('*.csolution.yml') }}
+          path: /home/runner/.cache/arm/packs
+
+      - name: Build (GCC)
+        run: cbuild ${SOLUTION}.csolution.yml --active ${TARGET} --toolchain GCC --packs
+
+      - name: Run on FVP_Corstone_SSE-320
+        env:
+          PYTHONHOME: ${{ env.pythonLocation }}
+        run: |
+          IMAGE=$(find out -name "${SOLUTION}.elf" | head -1)
+          echo "Running ${IMAGE}"
+          FVP_Corstone_SSE-320 \
+              -f board/Corstone-320/fvp_config.txt \
+              -a "${IMAGE}" \
+              --simlimit 900 --stat \
+              2>&1 | tee fvp_corstone320.log || true
+          echo "---- results ----"
+          ok=0
+          for k in "Test_result: PASS" "KWS_result: PASS" "YOLO_result: PASS"; do
+            if grep -q "$k" fvp_corstone320.log; then echo "OK   $k"; else echo "MISS $k"; ok=1; fi
+          done
+          exit $ok
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fvp-corstone-320
+          path: |
+            fvp_*.log
+            out/**/*.elf
+            out/**/*.map
