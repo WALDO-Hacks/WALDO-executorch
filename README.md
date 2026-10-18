@@ -18,7 +18,7 @@ no PC, no cloud, no second board.
 
 ### 📹 Tracking demo
 
-https://github.com/user-attachments/assets/c7e937ec-b346-4782-82a6-bf7b16476e33
+https://github.com/user-attachments/assets/a68f28ef-1706-4824-8a5f-49ceb8560f89
 
 ---
 
@@ -94,7 +94,7 @@ re-check — the NPU only wakes for real events.
 
 ### 📹 Voice demo
 
-https://github.com/user-attachments/assets/a68f28ef-1706-4824-8a5f-49ceb8560f89
+https://github.com/user-attachments/assets/c7e937ec-b346-4782-82a6-bf7b16476e33
 
 | Word | Effect |
 |---|---|
