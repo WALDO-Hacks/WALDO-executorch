@@ -31,7 +31,7 @@ static inline float iou(const Det& a, const Det& b) {
 }
 
 // scratch: caller-owned array of >= scratch_cap Det (use kMaxCandidates). out: caller-owned array of out_cap Det.
-// Returns the number of detections kept after NMS (may exceed out_cap; only the first out_cap, highest score first, are written).
+// Returns the number of detections kept after NMS, at most out_cap (highest score first; WALDO: NMS stops when out is full).
 // *dropped (optional) = candidates that did not fit in scratch (0 with scratch_cap >= kMaxCandidates at imgsz 320).
 static inline int decode(const float* const maps[3], const int h[3], const int w[3], int imgsz, float conf, float iou_thr,
                          Det* scratch, int scratch_cap, Det* out, int out_cap, int* dropped = nullptr) {
@@ -72,7 +72,9 @@ static inline int decode(const float* const maps[3], const int h[3], const int w
     bool dead[kMaxCandidates] = {false};
     if (n > kMaxCandidates) n = kMaxCandidates;
     int kept = 0;
-    for (;;) {
+    // Stop once out is full: a garbage frame (thousands of candidates) then costs at most
+    // out_cap passes, not one per candidate. The return value is capped at out_cap too.
+    while (kept < out_cap) {
         int bi = -1;
         for (int i = 0; i < n; i++) if (!dead[i] && (bi < 0 || scratch[i].score > scratch[bi].score)) bi = i;
         if (bi < 0) break;

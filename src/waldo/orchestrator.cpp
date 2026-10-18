@@ -51,6 +51,7 @@ struct {
 } patrol;
 
 enum orch_state state = ORCH_SENTRY;
+enum orch_state before_hold = ORCH_SENTRY;   // "go" after "stop" goes back to it
 uint32_t state_since, last_target_ms, last_move_ms, frames_in_state;
 uint8_t prev[CAM_MAX_W * CAM_MAX_H];
 bool have_prev;
@@ -61,6 +62,7 @@ void enter(enum orch_state s, uint32_t now)
 {
     if (s == state) return;
     printf("orch: %s -> %s\n", orch_state_name(state), orch_state_name(s));
+    const enum orch_state state_before_enter = state;
     state = s;
     state_since = now;
     frames_in_state = 0;
@@ -77,6 +79,7 @@ void enter(enum orch_state s, uint32_t now)
         patrol.t = now;
         patrol.investigate = 0;
     } else if (s == ORCH_HOLD) {
+        before_hold = state_before_enter;
         // Freeze where the turret is now, not where it was heading.
         motion_set(AXIS_PAN, motion_pos(AXIS_PAN));
         motion_set(AXIS_TILT, motion_pos(AXIS_TILT));
@@ -290,13 +293,24 @@ void orch_frame(const struct cam_frame *f, uint32_t now, struct det_box *boxes, 
     }
 }
 
+void orch_tick(uint32_t now)
+{
+    // Frames stopped (camera unplugged) while tracking: orch_frame() never runs, so give up here.
+    if (state == ORCH_TRACK && now - last_target_ms > kLostToSentryMs + 1000) enter(ORCH_SENTRY, now);
+}
+
 void orch_word(const char *w, uint32_t now)
 {
     printf("orch: heard \"%s\" in %s\n", w, orch_state_name(state));
     if (!strcmp(w, "off")) {
         enter(ORCH_PARKED, now);
     } else if (!strcmp(w, "on") || !strcmp(w, "go")) {
-        if (state == ORCH_PARKED || state == ORCH_HOLD) enter(ORCH_SENTRY, now);
+        if (state == ORCH_HOLD && before_hold == ORCH_TRACK) {
+            enter(ORCH_TRACK, now);   // resume following the same target, from where it is
+            last_target_ms = now;
+        } else if (state == ORCH_PARKED || state == ORCH_HOLD) {
+            enter(ORCH_SENTRY, now);
+        }
     } else if (!strcmp(w, "stop")) {
         if (state != ORCH_PARKED) enter(ORCH_HOLD, now);
     } else if (!strcmp(w, "no")) {

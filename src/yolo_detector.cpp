@@ -90,6 +90,7 @@ void yolo_stage_us(uint32_t *pre, uint32_t *npu, uint32_t *post)
 
 int yolo_detect_rgb(const uint8_t *rgb, int w, int h, float min_score, yolo_box *out, int max)
 {
+    g_pre_us = g_npu_us = g_post_us = g_hw_us = 0;   // stale stage times must not reach the stats
     if (!g_module || w <= 0 || h <= 0 || w > kSize || h > kSize) return -1;
     const uint32_t t0 = DWT->CYCCNT;
 
@@ -163,7 +164,8 @@ int yolo_detect_rgb(const uint8_t *rgb, int w, int h, float min_score, yolo_box 
     waldo::Det dets[16];
     const int kept = waldo::decode(maps, hw, hw, kSize, min_score, kNmsIou, g_scratch, waldo::kMaxCandidates,
                                    dets, 16);
-    const int n = kept < max ? (kept < 16 ? kept : 16) : max;
+    int n = kept < max ? kept : max;
+    if (n > 16) n = 16;
     for (int i = 0; i < n; i++) {   // letterboxed 320 px -> the caller's pixels
         const waldo::Det &d = dets[i];
         out[i] = {(d.x1 - ox) / scale, (d.y1 - oy) / scale, (d.x2 - d.x1) / scale, (d.y2 - d.y1) / scale,

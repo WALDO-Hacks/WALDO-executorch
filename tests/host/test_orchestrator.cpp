@@ -92,8 +92,10 @@ int main()
     CHECK(detect_calls == 10);
     CHECK(fabsf(motion_target(AXIS_PAN) - pan) < 0.01f);
 
-    // "go" -> back to SENTRY, then TRACK again.
+    // "go" -> straight back to TRACK on the same target, without a trip home.
     orch_word("go", now);
+    CHECK(orch_state() == ORCH_TRACK);
+    CHECK(fabsf(motion_target(AXIS_PAN) - pan) < 0.01f);
     step(8);
     CHECK(orch_state() == ORCH_TRACK);
 
@@ -125,6 +127,25 @@ int main()
     script[0] = {60, 50, 16, 16, 0.9f, 15};   // a chair
     script_n = 1;
     step(60);
+    CHECK(orch_state() == ORCH_SENTRY);
+
+    // The camera stops sending while tracking: no frames, so orch_frame() never runs;
+    // orch_tick() still gives up after the lost-target time.
+    script[0] = {80, 50, 20, 20, 0.9f, 0};
+    script_n = 1;
+    step(8);
+    CHECK(orch_state() == ORCH_TRACK);
+    for (int i = 0; i < 350; i++) {   // 7 s of main-loop passes, no frames
+        now += 20;
+        orch_tick(now);
+    }
+    CHECK(orch_state() == ORCH_SENTRY);
+
+    // "stop" in SENTRY then "go": back to SENTRY (nothing to resume).
+    script_n = 0;
+    orch_word("stop", now);
+    CHECK(orch_state() == ORCH_HOLD);
+    orch_word("go", now);
     CHECK(orch_state() == ORCH_SENTRY);
 
     // Back in SENTRY: looking straight ahead.
