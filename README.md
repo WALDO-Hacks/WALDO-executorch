@@ -3,12 +3,11 @@
 > Pan/tilt flashlight turret. Finds people, follows them, obeys voice commands.  
 > Two ExecuTorch models. Two NPUs. Two cores. No PC. No cloud.
 
-<!-- DEMO VIDEO 1: full tracking demo -->
-<!-- Paste a GitHub-uploaded MP4 URL on its own line here, e.g.:
-https://github.com/WALDO-Hacks/WALDO-executorch/assets/YOUR_ASSET_ID/waldo-demo.mp4
-or a YouTube thumbnail link:
-[![WALDO demo](https://img.youtube.com/vi/YOUR_VIDEO_ID/maxresdefault.jpg)](https://www.youtube.com/watch?v=YOUR_VIDEO_ID)
--->
+
+https://github.com/user-attachments/assets/c7e937ec-b346-4782-82a6-bf7b16476e33
+
+https://github.com/user-attachments/assets/a68f28ef-1706-4824-8a5f-49ceb8560f89
+
 
 ---
 
