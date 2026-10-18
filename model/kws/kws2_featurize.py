@@ -26,7 +26,7 @@ def build_jobs(split, copies, rng):
     train = split == "train"
     for i in lab_sc:
         w = sc[i][1]
-        for _ in range((3 if w in ("dog", "cat") else 2) if train else 1):
+        for _ in range((4 if w in ("dog", "cat") else 3) if train else 1):
             jobs.append(("sc", i, D.LABEL_ID[w]))
     for i in rng.choice(unk_sc, min(len(unk_sc), 16000 if train else 3000), replace=False):
         jobs.append(("sc", int(i), D.UNK))
@@ -34,7 +34,7 @@ def build_jobs(split, copies, rng):
         if kind == "word":
             c = (copies if src == "el" else max(2, copies - 2)) if train else 2
             jobs += [("tts", i, D.LABEL_ID[label])] * c
-            jobs += [("partial", i, D.UNK)] * (2 if train else 1)
+            jobs += [("partial", i, D.UNK)]
         elif kind == "conf":
             jobs += [("tts", i, D.UNK)] * (3 if train else 1)
         else:
@@ -63,7 +63,7 @@ def work(args):
             x = D.degrade(D.place(a, rng), rng, bank, bab)
         elif t == "partial":
             a = corp[r][0]
-            f = rng.uniform(0.3, 0.55)
+            f = rng.uniform(0.2, 0.45)
             a = a[:int(len(a) * f)] if rng.random() < 0.6 else a[int(len(a) * (1 - f)):]
             x = D.degrade(D.place(a, rng), rng, bank, bab)
         elif t == "crop":
@@ -85,9 +85,10 @@ def main():
     ap.add_argument("--copies", type=int, default=8)
     ap.add_argument("--workers", type=int, default=10)
     ap.add_argument("--splits", default="train,val")
+    ap.add_argument("--out", default="feats")
     a = ap.parse_args()
     t0 = time.time()
-    G["corpus"] = D.load_corpus(a.k)
+    G["corpus"] = D.load_corpus(a.k, skip_texts=V.CONTAINS_LABEL)
     G["sc"] = D.sc_index(a.k)
     G["bank"] = D.noise_bank(a.k)
     G["babble"] = {}
@@ -95,7 +96,7 @@ def main():
         unk = [p for p, w, _ in G["sc"][s] if w not in V.SC_LABELS][:300]
         G["babble"][s] = [D.read_wav(p) for p in unk]
     print({s: (len(G["corpus"][s]), len(G["sc"][s])) for s in G["sc"]}, f"loaded in {time.time() - t0:.0f} s", flush=True)
-    out = a.k / "feats"
+    out = a.k / a.out
     out.mkdir(exist_ok=True)
     ctx = mp.get_context("fork")
     for split in a.splits.split(","):

@@ -52,7 +52,7 @@ def listen(p, words, th, labels, hop_s=0.2):
         avg = np.mean(hist, 0)
         b = int(avg.argmax())
         t = i * hop_s
-        if b < words and avg[b] >= th and (b != last or t - last_t > 1.0):
+        if b < words and avg[b] >= (th[b] if np.ndim(th) else th) and (b != last or t - last_t > 1.0):
             heard.append(labels[b])
             last, last_t, hist = b, t, []
     return heard
@@ -73,7 +73,7 @@ def run_clips(runners, clips, cond, bank, th, seed=0):
         P = r.probs(X)
         res, o = [], 0
         for (a, tgt, tag), w in zip(clips, wins):
-            res.append((tgt, listen(P[o:o + len(w)], r.words, th, r.labels), tag))
+            res.append((tgt, listen(P[o:o + len(w)], r.words, r.th, r.labels), tag))
             o += len(w)
         out[name] = res
     return out
@@ -95,19 +95,29 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("k", type=Path)
     ap.add_argument("--weights", type=Path, required=True)
-    ap.add_argument("--th", type=float, default=0.80)
+    ap.add_argument("--th", type=float, default=0.80, help="threshold (src/kws.cpp) for both models")
+    ap.add_argument("--new-th", type=float, help="a different threshold for the new model")
+    ap.add_argument("--word-th", default="", help="per-word thresholds of the new model: cup=0.9,bottle=0.9")
     ap.add_argument("--device", default="mps" if torch.backends.mps.is_available() else "cpu")
     ap.add_argument("--sc-per-word", type=int, default=250)
     ap.add_argument("--json", type=Path)
+    ap.add_argument("--split", default="test", help="val to choose thresholds, test for the gate report")
     a = ap.parse_args()
     dev = torch.device(a.device)
     old_labels = ["down", "go", "left", "no", "off", "on", "right", "stop", "up", "yes", "_silence_", "_unknown_"]
     runners = {"old": Runner(MicroNetM(), old_labels, dev), "new": Runner(T.build(a.weights), V.LABELS, dev)}
-    corpus = D.load_corpus(a.k)["test"]
-    sc = D.sc_index(a.k)["test"]
-    bank = D.noise_bank(a.k)["test"]
+    # near misses that contain a label word ("book it") would count as false triggers
+    corpus = D.load_corpus(a.k, skip_texts=V.CONTAINS_LABEL)[a.split]
+    sc = D.sc_index(a.k)[a.split]
+    bank = D.noise_bank(a.k)[a.split]
     rng = np.random.default_rng(5)
     report = {}
+    runners["old"].th = a.th
+    th = np.full(len(V.LABELS), a.new_th or a.th)
+    for kv in filter(None, a.word_th.split(",")):
+        th[V.LABELS.index(kv.split("=")[0])] = float(kv.split("=")[1])
+    runners["new"].th = th
+    print("new model thresholds:", {l: float(t) for l, t in zip(V.LABELS[:V.WORDS], th)})
 
     # A: Speech Commands test speakers (real people), the 10 old words + dog/cat
     sc_clips = []
@@ -142,30 +152,30 @@ def main():
                 report[f"{setname}/{c}"]["cup_up"] = (100 * conf.get(("cup", "up"), 0) / max(n_cup, 1),
                                                       100 * conf.get(("up", "cup"), 0) / max(n_up, 1))
 
-    # C: false triggers on held-out talk: TTS sentences + confusables + SC test unknown words + noise
-    talk = [x for x, l, kind, spk, src in corpus if kind in ("sentence", "conf")]
+    # C: false triggers on held-out audio, two streams: ordinary talk (TTS sentences of the test
+    # voices + Speech Commands test speakers' other words) and near misses ("cap", "hey Walter", ...)
     unk = [p for p, w, _ in sc if w not in V.SC_LABELS]
-    for i in rng.choice(len(unk), 600, replace=False):
-        talk.append(D.read_wav(unk[i]))
-    order = rng.permutation(len(talk))
-    stream = np.concatenate([np.concatenate([talk[i], np.zeros(int(rng.uniform(0.2, 1.0) * 16000), np.float32)]) for i in order])
-    minutes = len(stream) / 16000 / 60
-    for c in ("clean", "board"):
-        x = D.degrade(stream.copy(), np.random.default_rng(11), bank, cond=CONDS[c]) if CONDS[c] else stream
-        # long stream: chunk the MFCC stream so memory stays small
-        heard = {}
-        for name, r in runners.items():
-            P = r.probs(windows_of(x))
-            heard[name] = listen(P, r.words, a.th, r.labels)
-        fo = len(heard["old"]) / minutes
-        fn = len(heard["new"]) / minutes
-        fn_cmd = sum(h in V.COMMANDS for h in heard["new"]) / minutes
-        report[f"FA/{c}"] = {"old": fo, "new": fn, "new_cmd": fn_cmd, "minutes": minutes}
-        cnt = {}
-        for h in heard["new"]:
-            cnt[h] = cnt.get(h, 0) + 1
-        print(f"\nfalse triggers, {minutes:.1f} min held-out talk, {c}: old {fo:.2f}/min  new {fn:.2f}/min "
-              f"(old words only {fn_cmd:.2f}/min); new by word {cnt}")
+    streams = {"talk": [x for x, l, kind, spk, src in corpus if kind == "sentence"] +
+                       [D.read_wav(unk[i]) for i in rng.choice(len(unk), 600, replace=False)],
+               "near-miss": [x for x, l, kind, spk, src in corpus if kind == "conf"]}
+    for sname, clips in streams.items():
+        order = rng.permutation(len(clips))
+        stream = np.concatenate([np.concatenate([clips[i], np.zeros(int(rng.uniform(0.2, 1.0) * 16000), np.float32)]) for i in order])
+        minutes = len(stream) / 16000 / 60
+        for c in ("clean", "board"):
+            x = D.degrade(stream.copy(), np.random.default_rng(11), bank, cond=CONDS[c]) if CONDS[c] else stream
+            heard = {}
+            for name, r in runners.items():
+                heard[name] = listen(r.probs(windows_of(x)), r.words, r.th, r.labels)
+            fo = len(heard["old"]) / minutes
+            fn = len(heard["new"]) / minutes
+            fn_cmd = sum(h in V.COMMANDS for h in heard["new"]) / minutes
+            report[f"FA/{sname}/{c}"] = {"old": fo, "new": fn, "new_cmd": fn_cmd, "minutes": minutes}
+            cnt = {}
+            for h in heard["new"]:
+                cnt[h] = cnt.get(h, 0) + 1
+            print(f"\nfalse triggers, {sname} ({minutes:.1f} min), {c}: old {fo:.2f}/min  new {fn:.2f}/min "
+                  f"(old words only {fn_cmd:.2f}/min); new by word {cnt}")
     if a.json:
         a.json.write_text(json.dumps(report, default=lambda o: o if not isinstance(o, np.floating) else float(o), indent=1))
 

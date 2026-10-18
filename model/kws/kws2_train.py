@@ -59,7 +59,7 @@ def load_npz(m, path):
         conv.bias.data = torch.from_numpy(w[f"b{i}"].astype(np.float32).copy())
 
 
-def balanced_epoch(y, rng, per_word=3500, unk=14000, sil=3000):
+def balanced_epoch(y, rng, per_word=3500, unk=20000, sil=3000):
     idx = []
     for c in range(len(V.LABELS)):
         pool = np.flatnonzero(y == c)
@@ -92,17 +92,19 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--device", default="mps" if torch.backends.mps.is_available() else "cpu")
     ap.add_argument("--bs", type=int, default=256)
+    ap.add_argument("--init", type=Path, help="start from these weights (best.npz of an earlier run)")
+    ap.add_argument("--feats", default="feats")
     a = ap.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
     torch.manual_seed(0)
     rng = np.random.default_rng(0)
-    tr, va = np.load(a.k / "feats" / "train.npz"), np.load(a.k / "feats" / "val.npz")
+    tr, va = np.load(a.k / a.feats / "train.npz"), np.load(a.k / a.feats / "val.npz")
     Xtr = torch.from_numpy(tr["X"].astype(np.float32)).unsqueeze(-1)
     ytr = tr["y"].astype(np.int64)
     Xva = torch.from_numpy(va["X"].astype(np.float32)).unsqueeze(-1)
     yva = va["y"].astype(np.int64)
     dev = torch.device(a.device)
-    m = build().to(dev)
+    m = build(a.init).to(dev)
     acc, per = evaluate(m, Xva, yva, dev)
     print(f"start: val acc {acc:.3f}", flush=True)
     best = -1
@@ -115,7 +117,7 @@ def main():
         if ep == 0 or ep == a.head_epochs:
             opt = torch.optim.AdamW([p for p in m.parameters() if p.requires_grad],
                                     lr=a.lr if head_only else a.lr * 0.5, weight_decay=1e-4)
-            steps = (a.head_epochs if head_only else a.epochs) * (len(balanced_epoch(ytr, np.random.default_rng(9))) // a.bs)
+            steps = max(1, (a.head_epochs if head_only else a.epochs)) * (len(balanced_epoch(ytr, np.random.default_rng(9))) // a.bs)
             sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=opt.param_groups[0]["lr"], total_steps=steps + 10, pct_start=0.1)
         m.train()
         t0, tl, nb = time.time(), 0.0, 0

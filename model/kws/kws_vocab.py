@@ -23,6 +23,8 @@ CONFUSABLE = ["cap", "cop", "pup", "cut", "hope", "foam", "bone", "comb", "look"
               "lap", "top", "bottom", "model", "bottled", "hey", "Waldo", "hello", "hey Walter",
               "hey Wally", "hello there", "back", "pack", "board", "parole", "petrol", "phony",
               "dock", "cot", "hat", "come", "pearson", "notebook", "book it", "laptop bag"]
+# Near misses that contain a label word: neither trained as _unknown_ nor counted as false triggers.
+CONTAINS_LABEL = {"book it", "laptop bag", "notebook"}
 # Ordinary talk, for _unknown_ chunks and false-trigger counts.
 SENTENCES = [
     "Hi everyone, this is our hackathon project.",

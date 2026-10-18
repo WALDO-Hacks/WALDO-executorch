@@ -61,8 +61,9 @@ def trim(x, db=-35):
     return x[lo:hi]
 
 
-def load_corpus(k):
-    """-> dict split -> list of (audio, label, kind, speaker, source). TTS clips trimmed."""
+def load_corpus(k, skip_texts=()):
+    """-> dict split -> list of (audio, label, kind, speaker, source). TTS clips trimmed.
+    skip_texts: phrases to leave out (near misses that contain a real label word)."""
     k = Path(k)
     out = {"train": [], "val": [], "test": []}
     el = k / "tts_el"
@@ -70,7 +71,7 @@ def load_corpus(k):
         for line in (el / "manifest.jsonl").read_text().splitlines():
             j = json.loads(line)
             p = el / "clips" / f"{j['key']}.pcm"
-            if not p.exists():
+            if not p.exists() or j["text"] in skip_texts:
                 continue
             a = np.frombuffer(p.read_bytes(), np.int16).astype(np.float32)
             a = a if j["kind"] == "sentence" else trim(a)
@@ -81,6 +82,8 @@ def load_corpus(k):
     if (say / "manifest.jsonl").exists():
         for line in (say / "manifest.jsonl").read_text().splitlines():
             j = json.loads(line)
+            if j["text"] in skip_texts:
+                continue
             a = read_wav(j["path"])
             a = a if j["kind"] == "sentence" else trim(a)
             if len(a) < 1600:
@@ -187,8 +190,14 @@ def noise_window(bank, rng, n=W, babble_src=None):
             w -= np.convolve(w, np.ones(400) / 400, mode="same").astype(np.float32)
         return w
     f = bank[rng.integers(len(bank))]
+    if len(f) <= n:   # long streams (evaluation): loop the file
+        f = np.tile(f, n // len(f) + 2)
     s = int(rng.integers(0, len(f) - n))
     return f[s:s + n].copy()
+
+
+# Training augmentation odds (kws2_featurize.py --aug can override).
+AUG = {"room": 0.4, "mic": 0.6, "noise": 0.7, "board": 0.2, "dc": 0.3}
 
 
 def degrade(x, rng, bank, babble_src=None, cond=None):
@@ -196,12 +205,12 @@ def degrade(x, rng, bank, babble_src=None, cond=None):
     cond = {"snr": dB or None, "gain_db": dB, "room": bool, "board": bool}."""
     n = len(x)
     if cond is None:
-        if rng.random() < 0.6:
+        if rng.random() < AUG["room"]:
             x = room(x, rng)
-        if rng.random() < 0.7:
+        if rng.random() < AUG["mic"]:
             x = mic(x, rng)
-        nz = noise_window(bank, rng, n, babble_src) if rng.random() < 0.85 else None
-        if rng.random() < 0.35:   # the board's measured regime: speech 500-1200 rms over 165-800
+        nz = noise_window(bank, rng, n, babble_src) if rng.random() < AUG["noise"] else None
+        if rng.random() < AUG["board"]:   # the board's measured regime: speech 500-1200 rms over 165-800
             if active_rms(x) > 0:
                 x = x * (rng.uniform(500, 1200) / active_rms(x))
             if nz is not None and rms(nz) > 0:
@@ -212,7 +221,7 @@ def degrade(x, rng, bank, babble_src=None, cond=None):
                 x = x * (16000 / pk) * 10 ** (rng.uniform(-30, 3) / 20)
             if nz is not None and rms(nz) > 0 and active_rms(x) > 1:
                 x = x + nz * (active_rms(x) / rms(nz)) * 10 ** (-rng.uniform(3, 30) / 20)
-        if rng.random() < 0.3:
+        if rng.random() < AUG["dc"]:
             x = x + rng.uniform(-300, 300)
     else:
         if cond.get("room"):
