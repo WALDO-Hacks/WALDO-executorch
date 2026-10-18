@@ -11,12 +11,10 @@ WALDO patrols a room, spots people with its camera, points its flashlight at the
 following. You steer it by voice. Everything runs on a single **Alif Ensemble E8 DevKit** —
 no PC, no cloud, no second board.
 
-| | |
-|---|---|
-| 👁 **Sees** | YOLOv8n — 28 room classes, 320 × 320, **100 % on the Ethos-U85** NPU |
-| 👂 **Hears** | MicroNet-M (fine-tuned) — 10 command words, **100 % on the Ethos-U55** NPU |
-| 🧠 **Decides** | One state machine on the HP core: PARKED → SENTRY → TRACK → HOLD |
-| 🔦 **Moves** | Two servos on **hardware UTIMER PWM** — jitter-free 50 Hz, zero CPU cost |
+- 👁 **Sees** — YOLOv8n, 28 room classes, 320 × 320, **100 % on the Ethos-U85** NPU
+- 👂 **Hears** — MicroNet-M (fine-tuned), 10 command words, **100 % on the Ethos-U55** NPU
+- 🧠 **Decides** — one state machine on the HP core: PARKED → SENTRY → TRACK → HOLD
+- 🔦 **Moves** — two servos on **hardware UTIMER PWM**, jitter-free 50 Hz, zero CPU cost
 
 ### 📹 Tracking demo
 
@@ -170,7 +168,7 @@ Full setup → [`documentation/template-guide.md`](documentation/template-guide.
 
 ## Credits
 
-| | |
+| Component | Licence |
 |---|---|
 | ExecuTorch hackathon template | Arm · Meta (Apache-2.0) |
 | YOLOv8 | Ultralytics **(AGPL-3.0)** |
