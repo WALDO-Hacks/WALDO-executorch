@@ -171,5 +171,12 @@ extern "C" int app_main(void) {
 #endif
   printf("\x04");  // EOT: ends the FVP run (semihosting exit); a board just sees a 0x04
   fflush(stdout);
+#ifdef WALDO_FVP_TURRET
+  {  // Semihosting SYS_EXIT (ADP_Stopped_ApplicationExit): ends the FVP run now.
+    register int r0 __asm__("r0") = 0x18;
+    register int r1 __asm__("r1") = 0x20026;
+    __asm__ volatile("bkpt 0xAB" : "+r"(r0) : "r"(r1) : "memory");
+  }
+#endif
   return 0;
 }

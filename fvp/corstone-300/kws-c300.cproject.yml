@@ -1,0 +1,59 @@
+# fvp-sim: HE keyword-spotter self-test on the Corstone-300 FVP (see kws-c300.csolution.yml).
+project:
+  define:
+    - ETHOSU55
+    - ET_LOG_ENABLED: 0
+    # src/kws.cpp: the HE image's pool sizes (Vela: 121 KiB scratch on the U55-128)
+    - KWS_METHOD_POOL_SIZE: 131072
+    - KWS_TEMP_POOL_SIZE: 196608
+
+  add-path:
+    - ../../src
+    - .
+
+  misc:
+    - CPP:
+        - -std=gnu++17
+        - -Wno-deprecated-declarations
+        - -Wno-psabi
+    - C:
+        - -Wno-psabi
+    - Link:
+        - -Wl,-u,_printf_float
+
+  components:
+    - component: CMSIS:CORE
+    - component: CMSIS-Compiler:CORE
+    - component: CMSIS-Compiler:STDERR:Custom
+    - component: CMSIS-Compiler:STDIN:Custom
+    - component: CMSIS-Compiler:STDOUT:Custom
+    - component: Device:Definition
+    - component: Device:Startup&C Startup
+    - component: Machine Learning:NPU Support:Ethos-U Driver&Generic U55
+    - component: Machine Learning:ExecuTorch:Runtime
+    - component: Machine Learning:ExecuTorch:Kernel Utils
+    - component: Machine Learning:ExecuTorch:Kernel Registration
+    - component: Machine Learning:ExecuTorch:Backend EthosU
+    - component: Machine Learning:ExecuTorch Operators:Quantized dequantize
+    - component: Machine Learning:ExecuTorch Operators:Quantized quantize
+
+  groups:
+    - group: Board
+      files:
+        - file: ./main.cpp
+        - file: ./ethos_setup.c
+        - file: ../../board/Corstone-320/retarget_stdio.c
+    - group: KWS
+      files:
+        - file: ../../he/kws_pte_he.c
+        - file: ../../src/kws.cpp
+        - file: ../../src/arm_embedded_module.cpp
+        - file: ../../src/waldo/kws_mfcc.c
+
+  linker:
+    - regions: ./regions_SSE-300.h
+
+  output:
+    type:
+      - elf
+      - map

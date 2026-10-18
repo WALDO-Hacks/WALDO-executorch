@@ -1,0 +1,31 @@
+# fvp-sim: the M55-HE's keyword spotter (MicroNet-M compiled for the Ethos-U55-128,
+# he/kws_pte_he.c) on the Corstone-300 FVP (FVP_Corstone_SSE-300_Ethos-U55), which has an
+# Ethos-U55 with 128 MACs. Same model, MFCC code and runtime (src/kws.cpp) as the HE image;
+# the board bring-up is the FVP's.
+#
+#   cbuild fvp/corstone-300/kws-c300.csolution.yml --toolchain GCC --packs
+#   FVP_Corstone_SSE-300_Ethos-U55 -f fvp/corstone-300/fvp_config.txt -a <elf>
+solution:
+  created-for: CMSIS-Toolbox@2.15.0
+  cdefault:
+  compiler: GCC
+
+  packs:
+    - pack: PyTorch::ExecuTorch@1.5.1
+    - pack: ARM::CMSIS
+    - pack: ARM::CMSIS-Compiler
+    - pack: ARM::ethos-u-core-driver@^1.25.2
+    - pack: ARM::V2M_MPS3_SSE_300_BSP@1.5.0
+
+  target-types:
+    - type: SSE-300-U55
+      board: ARM::V2M-MPS3-SSE-300-FVP
+      device: ARM::SSE-300-MPS3
+
+  build-types:
+    - type: Debug
+      debug: on
+      optimize: debug
+
+  projects:
+    - project: ./kws-c300.cproject.yml

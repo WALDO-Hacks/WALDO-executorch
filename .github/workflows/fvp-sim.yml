@@ -69,3 +69,50 @@ jobs:
             fvp_*.log
             out/**/*.elf
             out/**/*.map
+
+  corstone-300-u55:
+    name: HE KWS on Corstone-300 (Ethos-U55-128)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        uses: ARM-software/cmsis-actions/vcpkg@v1
+
+      - name: Activate Arm tool license
+        uses: ARM-software/cmsis-actions/armlm@v1
+
+      - name: Set up Python 3.11 for the FVP
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build (GCC)
+        run: cbuild fvp/corstone-300/kws-c300.csolution.yml --toolchain GCC --packs
+
+      - name: Run on FVP_Corstone_SSE-300_Ethos-U55
+        env:
+          PYTHONHOME: ${{ env.pythonLocation }}
+        run: |
+          IMAGE=$(find fvp/corstone-300/out -name "kws-c300.elf" | head -1)
+          echo "Running ${IMAGE}"
+          FVP_Corstone_SSE-300_Ethos-U55 --list-params | grep -iE "INITSVTOR|num_macs|semihosting-enable" || true
+          FVP_Corstone_SSE-300_Ethos-U55 \
+              -f fvp/corstone-300/fvp_config.txt \
+              -a "${IMAGE}" \
+              --simlimit 120 --stat \
+              2>&1 | tee fvp_corstone300.log || true
+          grep -q "KWS_HE_result: PASS" fvp_corstone300.log
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fvp-corstone-300
+          path: |
+            fvp_*.log
+            fvp/corstone-300/out/**/*.elf
+            fvp/corstone-300/out/**/*.map
