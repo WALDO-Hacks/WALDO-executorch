@@ -5,6 +5,7 @@ CXXFLAGS := -std=c++17 -O1 -Wall -I$(W)
 test: test_orchestrator test_runner test_view test_brain
 	./test_orchestrator
 	./test_runner
+	SIM_TICK_MS=100 ./test_runner   # the board's main loop: ~100 ms per pass while tracking
 	./test_brain
 	./test_view data/room_rot90.jpg 90 2 lcd_room.ppm 0 24 27 38 70 60 20 20   # open lcd_room.ppm to look
 

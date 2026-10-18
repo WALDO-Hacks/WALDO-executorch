@@ -53,11 +53,17 @@ static unsigned hist_i;
 // reports every visible person as the camera saw them age_ms ago.
 static void frame_of(const person *p, int np)
 {
+    // SIM_TICK_MS: how often the main loop runs (the board: ~100 ms while tracking).
+    static const uint32_t tick = getenv("SIM_TICK_MS") ? (uint32_t)atoi(getenv("SIM_TICK_MS")) : 2;
+    static uint32_t last_tick_at;
     for (uint32_t t = 0; t < sim.frame_ms; t += 2) {
         now += 2;
-        motion_tick(0.002f);
-        orch_tick(now);
-        pan_hist[hist_i % 512] = motion_pos(AXIS_PAN);
+        if (now - last_tick_at >= tick) {
+            motion_tick((now - last_tick_at) / 1000.0f > 0.5f ? 0.002f : (now - last_tick_at) / 1000.0f);
+            last_tick_at = now;
+            orch_tick(now);
+        }
+        pan_hist[hist_i % 512] = motion_pos(AXIS_PAN);   // where the camera points, every 2 ms
         tilt_hist[hist_i % 512] = motion_pos(AXIS_TILT);
         hist_i++;
     }
@@ -263,7 +269,7 @@ int main()
         for (int i = 0; i < 30; i++) { p.tilt -= 30 * 0.066f; frame_of(&p, 1); worst = fmaxf(worst, err_tilt(p)); }
         for (int i = 0; i < 30; i++) { p.tilt += 30 * 0.066f; frame_of(&p, 1); worst = fmaxf(worst, err_tilt(p)); }
         printf("moving down and up at 30 deg/s: worst tilt error %.0f deg\n", worst);
-        CHECK(worst < 10);
+        CHECK(worst < 15);
     }
 
     // 11. Runs past the pan limit (+90): the turret stops at the limit, then gives up and

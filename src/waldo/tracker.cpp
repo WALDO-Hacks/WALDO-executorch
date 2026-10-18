@@ -132,6 +132,7 @@ bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
         if (alt >= 0) {
             pick = alt;
             target_cls = b[alt].cls;
+            kf_on = false;   // a different target: its speed starts from zero
             printf("track: switched to a %s\n", detect_class_name(target_cls));
         } else {
             printf("track: no other target that way\n");
@@ -194,9 +195,11 @@ void tracker_tick(uint32_t now, bool following)
     }
     const float dt = (now - last_tick) / 1000.0f;
     last_tick = now;
-    if (!following || !kf_on || dt <= 0 || dt > 0.1f) return;
+    // The board ticks once per main loop, ~100 ms apart while a frame is processed: a
+    // longer gap (a stall) is not turned into one big jump.
+    if (!following || !kf_on || dt <= 0 || dt > 0.5f) return;
     const uint32_t since = now - kf_t;
-    if (st.has_target || since < kCoastMs) {
+    if (since < kCoastMs) {   // also bounds it if frames stop arriving altogether
         // Feed-forward: turn with a moving target between frames and through short misses
         // (motion blur, a pillar). A still target's "speed" is box noise: ignore it.
         // While it is seen, the image error closes the loop, so only part of the speed is
