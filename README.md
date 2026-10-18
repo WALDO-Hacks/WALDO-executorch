@@ -81,7 +81,7 @@ stateDiagram-v2
 |---|---|---|
 | **PARKED** | HE microphones only | head down, light off — HP sleeps |
 | **SENTRY** | motion every frame (CPU); YOLO **only where something changed** | sweeps a 10-stop Z pattern |
-| **TRACK** | YOLO every frame | follows the target |
+| **TRACK** | YOLO every frame | locked onto one specific target until it's gone or a voice command switches it |
 | **HOLD** | YOLO every frame | frozen on target |
 
 **Patrol memory:** each stop stores a 300-byte pixel-mean snapshot. The second lap of an
