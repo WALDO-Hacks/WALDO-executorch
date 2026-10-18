@@ -204,6 +204,15 @@ void waldo_poll(void)
     }
     // Voice: the keyword spotter listens all the time (on the M55-HE in the two-brain build).
 #ifdef WALDO_TWO_BRAIN
+    // "Hey Waldo": commands need it only while the HE reports its detector running (else every
+    // word acts, as before). Wake events are read before the word so "Hey Waldo, left" works.
+    const bool wake_on = brain_hp_wake_enabled();
+    if (orch_running) orch_set_wake_required(wake_on);
+    uint32_t wake_score;
+    while (brain_hp_wake_poll(&wake_score)) {
+        printf("HEARD: Hey Waldo (%lu/1000)\n", (unsigned long)wake_score);
+        if (orch_running) orch_wake(now);
+    }
     int word = brain_hp_word();
 #else
     int word = kws_listen(now);

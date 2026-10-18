@@ -1,0 +1,117 @@
+# "Hey Waldo" wake word: every number the scripts use lives here (no magic numbers in code).
+seed: 20261018
+paths:                     # outside the repo; untrusted data stays there. Relative paths are
+                           # taken from the repo root; ~ and $VARS are expanded (wakelib.load_config)
+  scratch: ../../data-scratch
+  speech_commands: ../../data-scratch/speech_commands_v0.02
+  tts: ../../data-scratch/wake_tts
+  cache: ../../data-scratch/wake_cache
+  runs: ../../data-scratch/wake_runs
+  real: ../../data-scratch/wake_real   # record_real.py output, optional
+
+tts:
+  # Natural-sounding macOS en_ voices. Excluded novelty voices: Bad News, Bahh, Bells, Boing,
+  # Bubbles, Cellos, Wobble, Good News, Jester, Organ, Superstar, Trinoids, Whisper, Zarvox.
+  voices:
+    - Albert
+    - Daniel
+    - Eddy (English (UK))
+    - Eddy (English (US))
+    - Flo (English (UK))
+    - Flo (English (US))
+    - Fred
+    - Grandma (English (UK))
+    - Grandma (English (US))
+    - Grandpa (English (UK))
+    - Grandpa (English (US))
+    - Junior
+    - Karen
+    - Kathy
+    - Moira
+    - Ralph
+    - Reed (English (UK))
+    - Reed (English (US))
+    - Rishi
+    - Rocko (English (UK))
+    - Rocko (English (US))
+    - Samantha
+    - Sandy (English (UK))
+    - Sandy (English (US))
+    - Shelley (English (UK))
+    - Shelley (English (US))
+    - Tessa
+  split_groups: {val: 3, test: 4}   # voice NAMES (UK/US variants count as one) per split, rest train
+  rates_wpm_positive: [150, 175, 200, 230]
+  rates_wpm_negative: [150, 190, 230]
+  pitch_base: [null, 30, 60]         # [[pbas N]]; null = the voice default
+  positives: ["hey waldo", "hey, waldo", "Hey Waldo!"]
+  waldo_alone: ["waldo", "Waldo!"]   # optional class, reported separately, never trained on
+  confusable: ["hey wall", "hello", "hello there", "hey Walter", "hey Wally", "hey Walt", "hey Wanda",
+               "hey Waldorf", "hey Walden", "hey world", "hey Waldron", "all do", "hey Ronaldo",
+               "hey Aldo", "where is Waldo", "hey wallet", "hey Dale", "hey Walker", "hey you",
+               "hey there", "hey all", "hey Wendy", "hey Willow", "okay Waldo", "hey, what do",
+               "hey Waldo's", "well done", "hey dough", "hey Walla", "hi Waldo"]
+  sentences: ["turn the light on", "what time is it", "I will be there soon", "can you hear me",
+              "the weather is nice today", "please close the door", "let us go to lunch",
+              "where did you put my keys", "this is a demonstration", "good morning everyone",
+              "thank you very much", "I think that is right", "how are you doing", "see you tomorrow",
+              "the robot is turning around", "look at the camera", "welcome to the lab",
+              "can I get some coffee", "that was really interesting", "tell me about the project",
+              "what do you mean", "I do not know", "wait a second", "that is a good idea",
+              "it is quite loud in here", "open the window please", "my name is Alex",
+              "we are almost done", "come over here", "have a nice day", "one two three four five",
+              "the quick brown fox jumps over the lazy dog", "who is that over there",
+              "it works", "stop talking", "not yet", "all right then", "here you go", "hello everyone",
+              "how does it work"]
+  words: ["down", "go", "left", "no", "off", "on", "right", "stop", "up", "yes"]   # quoted: bare no/off/on/yes are YAML booleans
+
+audio:
+  rate: 16000
+  trim_db: -40               # leading/trailing silence trim threshold, dB below the clip peak
+  min_phrase_s: 0.35
+  max_phrase_s: 0.98         # a positive must fit the 1 s window
+
+augment:
+  gain_db: [-30, 6]          # applied to the speech before noise (peak-normalised first)
+  snr_db: [0, 30]            # speech vs background noise, uniform
+  noise_prob: 0.9
+  board_prob: 0.25           # share of training examples in the board's measured regime (below)
+  speech_rms: [500, 1200]    # int16 counts, lead's BOARD measurement of speech at the PDM mics
+  noise_rms: [165, 800]      # int16 counts, BOARD room-noise floor (speech only ~2x above it)
+  dc_max: 300                # counts, random DC offset on 30 % of examples
+  reverb_prob: 0.4
+  reverb_rt60_s: [0.1, 0.6]
+  speed: [0.85, 1.2]          # resampling, shifts pitch and tempo together (training only)
+  edge_margin_s: 0.02        # a positive phrase stays at least this far from the window edge
+
+train:
+  epochs: 40
+  batch: 256
+  lr: 0.003
+  weight_decay: 0.0001
+  positives_per_epoch: 6000
+  neg_ratio: {sc_words: 0.3, sc_mix: 0.15, tts_conf: 0.25, tts_gen: 0.1, noise: 0.1, partial: 0.1}
+  seeds: [1, 2, 3]
+  width: 32
+  blocks: 4
+  pos_weight: 1.0
+
+eval:
+  hop_ms: 200
+  fa_target_per_hour: 1.0    # threshold: lowest value on VALIDATION with this many FA/h (debounced)
+  # debounce on 200 ms windows: k_hits of the last n_window posteriors >= threshold, then refractory
+  debounce: {n_window: 3, k_hits: 2, refractory_s: 2.0}
+  positive_trials_per_clip: 3
+  noise_split: [0.6, 0.2, 0.2]   # background-noise files split by time into train/val/test
+  debounce_grid: [[1, 1], [2, 2], [3, 2], [4, 2], [4, 3]]   # (n_window, k_hits) candidates, chosen on validation only
+
+real:                      # speakers in <paths.real> by directory name; every other speaker is TEST
+  train_speakers: []
+  val_speakers: []
+
+# Evaluation conditions (reported separately). Absolute levels are int16 counts.
+conditions:
+  normal:    {gain_db: [-6, 0],   snr_db: [20, 30]}
+  low_level: {gain_db: [-15, -10], snr_db: [20, 30]}   # quiet speech, clean
+  low_snr:   {gain_db: [-10, -3], snr_db: [0, 10]}
+  board_like: {speech_rms: [500, 1200], noise_rms: [165, 800]}   # BOARD-measured regime (lead, 2026-10-18)

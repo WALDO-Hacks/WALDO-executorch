@@ -1,6 +1,8 @@
 # WALDO: a voice-controlled turret that finds and follows, on one Alif E8
 
-WALDO is a pan/tilt turret with a flashlight. It patrols a room, finds people and objects
+> **Agents and contributors: read [`documentation/jitter-hypotheses.md`](documentation/jitter-hypotheses.md) before changing the tracker or orchestrator.** It lists unverified hypotheses for the turret's jitter and aimless motion, and how to test them.
+
+WALDO is a pan/tilt turret with a flashlight. It patrols a room, finds people
 with a camera, points at them and keeps following them. You steer it by voice: "stop",
 "go", "left", "off". Everything runs on the **Alif Ensemble E8 DevKit**: no PC, no cloud.
 
@@ -98,7 +100,7 @@ two tilts): move, settle 0.6 s, look 0.7 s. Each stop keeps a 300-byte picture o
 (the mean of every 8x8 cell, compared with one cell of slack for servo error). YOLO runs
 only where that picture changed since the last lap, on a first visit, every third lap, or
 when something moves. In the host test, a second lap of an unchanged room runs YOLO at
-**0 of 10 stops**, and an object that appears is picked up at the one stop that sees it.
+**0 of 10 stops**, and a change in the room is looked at again at the one stop that sees it (only people are followed).
 
 **Voice commands:**
 
@@ -141,7 +143,7 @@ conversions at the inputs and outputs stay on the CPU.
 | YOLOv8n on a DK-E8 (the team's own export) | 29 ms per frame; mAP50 0.439 board = 0.439 host | board |
 | Camera link, colour JPEG 320x240 | 27.8 fps, 3–12 KB per frame | camera head |
 | BlazeFace frame, v1 turret: preprocess 3.6 + NPU 9.4 + decode 0.6 + display 12.1 ms | 25.6 ms | board |
-| WALDO's YOLO frame and power, single- vs two-brain | *to measure on the board* | board |
+| WALDO's YOLO frame and power, single- vs two-brain | not measured | board |
 
 **Memory** (GCC build, two-brain):
 
@@ -250,13 +252,19 @@ SENTRY. The FVP build prints `Test_result` (BlazeFace), and with GCC also `KWS_r
 **Worked on the board (v1, branch `waldo`):** face tracking with BlazeFace on the NPU, the
 camera link, servo tracking, the LCD view, the microphones, standalone boot.
 
-**Built, host-tested and run on the FVPs; our DevKit failed during the hackathon:** YOLOv8n
-in the firmware, live keyword spotting, the orchestrator and patrol, the JPEG camera path,
-the two-brain split. *Board results go here.*
+**Ran on the DK-E8:** YOLOv8n
+in the firmware, live keyword spotting, the orchestrator and patrol, the JPEG camera link and
+the two-brain split. Also built, host-tested and run on the FVPs (numbers above). Not measured on the
+board: WALDO's YOLO frame time and the power of single- vs two-brain.
+
+**Not in the shipped build:** the "Hey Waldo" wake word. It was removed; the code and training
+scripts stay in `he/wake*` and `model/wake/` ([documentation/wake-word.md](documentation/wake-word.md)),
+and every heard command word acts directly.
 
 **Next steps:**
 - Motion detection on the HE too, and the HP powered down while the room is quiet.
-- A second-pass check of each heard word on the HP (as Siri does), and a wake word.
+- A second-pass check of each heard word on the HP (as Siri does).
+- Bring the wake word back (code in `he/wake*`, not wired in), with its model and measured false-alarm rate.
 - Measure the power of single- vs two-brain.
 
 ## Credits and licences

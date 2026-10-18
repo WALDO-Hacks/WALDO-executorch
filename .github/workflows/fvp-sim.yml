@@ -5,7 +5,7 @@ name: FVP turret self-tests
 on:
   workflow_dispatch:
   push:
-    branches: [fvp-sim]
+    branches: [fvp-sim, two-brain]
 
 env:
   SOLUTION: cmsis-executorch
