@@ -127,3 +127,30 @@ uint64_t ethosu_address_remap(uint64_t address, int index)
     (void)index;
     return LocalToGlobal((const volatile void *)(uintptr_t)address);
 }
+
+/* WALDO: time the NPU itself. ExecuTorch's forward() also converts the input from float
+   to int8 and the outputs back on the CPU; these two driver hooks bracket only the NPU's
+   command stream (start to completion interrupt), on the M55's cycle counter. Override
+   the driver's weak defaults; ethos_npu_cycles_take() returns the sum since its last call. */
+static volatile uint32_t npu_t0, npu_cycles;
+
+void ethosu_inference_begin(struct ethosu_driver *drv, void *user_arg)
+{
+    (void)drv;
+    (void)user_arg;
+    npu_t0 = DWT->CYCCNT;
+}
+
+void ethosu_inference_end(struct ethosu_driver *drv, void *user_arg)
+{
+    (void)drv;
+    (void)user_arg;
+    npu_cycles += DWT->CYCCNT - npu_t0;
+}
+
+uint32_t ethos_npu_cycles_take(void)
+{
+    uint32_t c = npu_cycles;
+    npu_cycles = 0;
+    return c;
+}

@@ -18,3 +18,5 @@ int detect(const struct cam_frame *f, struct det_box *out, int max);
 const char *detect_class_name(int cls);
 // The last detect() split up: preprocess, NPU, decode (us); npu = 0 if it didn't run.
 void detect_stage_us(uint32_t *pre, uint32_t *npu, uint32_t *post);
+// Of that NPU time, how long the NPU itself was busy (the rest: int8 <-> float on the CPU).
+uint32_t detect_npu_hw_us(void);

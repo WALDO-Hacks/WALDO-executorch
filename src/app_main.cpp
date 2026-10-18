@@ -73,8 +73,9 @@ static bool yolo_self_test() {
   uint32_t pre, npu, post;
   yolo_stage_us(&pre, &npu, &post);
   int people = 0;
-  printf("YOLO self-test: %d detection(s) in %ux%u, letterbox %lu us, NPU %lu us, decode %lu us\n", n, w, h,
-         static_cast<unsigned long>(pre), static_cast<unsigned long>(npu), static_cast<unsigned long>(post));
+  printf("YOLO self-test: %d detection(s) in %ux%u, letterbox %lu us, forward %lu us (NPU busy %lu us), decode %lu us\n",
+         n, w, h, static_cast<unsigned long>(pre), static_cast<unsigned long>(npu),
+         static_cast<unsigned long>(yolo_npu_hw_us()), static_cast<unsigned long>(post));
   for (int i = 0; i < n; i++) {
     printf("  %s %.2f at x %.0f y %.0f w %.0f h %.0f\n", yolo_class_name(b[i].cls), (double)b[i].score,
            (double)b[i].x, (double)b[i].y, (double)b[i].w, (double)b[i].h);

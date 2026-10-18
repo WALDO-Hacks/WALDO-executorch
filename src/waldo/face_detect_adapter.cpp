@@ -20,3 +20,4 @@ int detect(const struct cam_frame *f, struct det_box *out, int max)
 }
 
 void detect_stage_us(uint32_t *pre, uint32_t *npu, uint32_t *post) { yolo_stage_us(pre, npu, post); }
+uint32_t detect_npu_hw_us(void) { return yolo_npu_hw_us(); }

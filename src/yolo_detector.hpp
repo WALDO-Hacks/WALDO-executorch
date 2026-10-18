@@ -21,3 +21,5 @@ int yolo_detect_rgb(const uint8_t *rgb, int w, int h, float min_score, yolo_box 
 const char *yolo_class_name(int cls);
 // The last call split up: letterbox (CPU), forward() (NPU), decode + NMS (CPU), in us.
 void yolo_stage_us(uint32_t *pre, uint32_t *npu, uint32_t *post);
+// Of the last forward(): the time the NPU itself was busy (the rest is CPU-side I/O conversion).
+uint32_t yolo_npu_hw_us();

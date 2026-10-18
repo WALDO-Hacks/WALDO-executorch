@@ -19,8 +19,8 @@
 
 // Per-stage timing (DWT cycle counter, started by kws_init / yolo_init): mean and worst
 // over each 2 s stats window, printed with the stats.
-enum { ST_LINK, ST_PRE, ST_NPU, ST_POST, ST_TRACK, ST_DISPLAY, ST_FRAME, ST_N };
-static const char *const st_name[ST_N] = {"camera rx", "preprocess", "NPU", "decode+NMS",
+enum { ST_LINK, ST_PRE, ST_NPU, ST_NPU_HW, ST_POST, ST_TRACK, ST_DISPLAY, ST_FRAME, ST_N };
+static const char *const st_name[ST_N] = {"camera rx", "preprocess", "forward", "of which NPU busy", "decode+NMS",
                                           "orchestrator+tracker", "display", "frame total"};
 static struct { uint64_t sum; uint32_t max, n; } st[ST_N];
 
@@ -100,6 +100,7 @@ void waldo_poll(void)
             detect_stage_us(&pre, &npu, &post);
             st_add(ST_PRE, pre);
             st_add(ST_NPU, npu);
+            st_add(ST_NPU_HW, detect_npu_hw_us());
             last_npu_us = npu;
             st_add(ST_POST, post);
             st_add(ST_TRACK, orch_us - pre - npu - post);

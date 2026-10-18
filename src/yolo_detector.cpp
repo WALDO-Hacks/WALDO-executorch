@@ -16,6 +16,8 @@
 #include "RTE_Components.h"
 #include CMSIS_device_header
 
+extern "C" uint32_t ethos_npu_cycles_take(void);   // board/DevKit-E8/ethos_setup.c
+
 #include "arm_embedded_module.hpp"
 #include "yolo/waldo_yolo_classes.h"
 #include "yolo/waldo_yolo_decode.h"
@@ -54,7 +56,7 @@ alignas(16) float g_input[3 * kSize * kSize] __attribute__((section(".bss.sram1.
 
 std::unique_ptr<EmbeddedModule> g_module;
 waldo::Det g_scratch[waldo::kMaxCandidates];
-uint32_t g_pre_us, g_npu_us, g_post_us;
+uint32_t g_pre_us, g_npu_us, g_post_us, g_hw_us;
 
 inline uint32_t cyc_to_us(uint32_t c) { return c / (SystemCoreClock / 1000000u); }
 
@@ -76,6 +78,8 @@ const char *yolo_class_name(int cls)
 {
     return cls >= 0 && cls < YOLO_CLASSES ? waldo::kClassNames[cls] : "?";
 }
+
+uint32_t yolo_npu_hw_us() { return g_hw_us; }
 
 void yolo_stage_us(uint32_t *pre, uint32_t *npu, uint32_t *post)
 {
@@ -131,10 +135,12 @@ int yolo_detect_rgb(const uint8_t *rgb, int w, int h, float min_score, yolo_box 
     TensorImpl impl(ScalarType::Float, sizes.size(), sizes.data(), g_input, dim_order.data());
     Tensor input(&impl);
     const uint32_t t1 = DWT->CYCCNT;
+    ethos_npu_cycles_take();
     auto outputs = g_module->forward(input);   // copies the input in on every call
     const uint32_t t2 = DWT->CYCCNT;
     g_pre_us = cyc_to_us(t1 - t0);
     g_npu_us = cyc_to_us(t2 - t1);
+    g_hw_us = cyc_to_us(ethos_npu_cycles_take());   // the NPU alone; the rest is int8<->float on the CPU
     if (!outputs.ok() || outputs->size() != 3) {
         printf("yolo: forward failed (err=%u)\n", outputs.ok() ? 0u : (unsigned)outputs.error());
         return -1;
