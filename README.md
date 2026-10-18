@@ -96,13 +96,30 @@ re-check — the NPU only wakes for real events.
 
 https://github.com/user-attachments/assets/c7e937ec-b346-4782-82a6-bf7b16476e33
 
+**Control:**
+
 | Word | Effect |
 |---|---|
 | **off** | park (HP sleeps; HE still listens) |
 | **on / go** | wake, or resume previous state |
 | **stop** | freeze on target |
-| **left / right / up / down** | **switch to the nearest person or object in that direction** — "right" moves from a person to the cup beside them |
-| **no** | drop current target, back to people |
+| **left / right / up / down** | switch to the nearest target in that direction |
+| **no** | drop current target, back to following people |
+| **home** | return to home position |
+| **patrol** | start a patrol sweep |
+
+**Object targeting** — say the object name to lock onto that class:
+
+| Word | Tracks |
+|---|---|
+| **cup** | cup / mug |
+| **bottle** | water bottle |
+| **phone** | cell phone |
+| **laptop** | laptop |
+| **book** | book |
+| **backpack** | backpack |
+| **keyboard** | keyboard |
+| **chair** | chair |
 
 The KWS model is **MicroNet-M fine-tuned** on Google Speech Commands + ElevenLabs TTS
 synthetic voices (26 speakers × 10 words) with room and microphone augmentation — giving
