@@ -17,3 +17,7 @@ int face_detect_gray(const uint8_t *img, int w, int h, face_box *out, int max);
 
 // Microseconds the last NPU inference took (forward() only).
 uint32_t face_detector_last_us();
+
+// The last call split up: letterbox + scaling on the CPU, forward() on the NPU,
+// anchor decoding + NMS on the CPU (microseconds).
+void face_detector_stage_us(uint32_t *pre, uint32_t *npu, uint32_t *post);

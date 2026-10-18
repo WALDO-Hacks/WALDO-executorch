@@ -44,6 +44,10 @@ project:
         - file: ./src/waldo/camlink_rx.cpp
         - file: ./src/waldo/tracker.cpp
         - file: ./src/waldo/face_detect_adapter.cpp
+        - file: ./src/waldo/mic.c
+        - file: ./src/waldo/kws_mfcc.c
+        - file: ./src/kws.cpp
+        - file: ./src/kws_pte.c
 
   layers:
     - layer: $Board-Layer$

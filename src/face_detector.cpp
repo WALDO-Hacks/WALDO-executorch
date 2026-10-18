@@ -56,7 +56,9 @@ constexpr float kNmsIou = 0.3f;
 
 std::unique_ptr<EmbeddedModule> g_module;
 alignas(16) float g_input[kSize * kSize];
-uint32_t g_last_us;
+uint32_t g_last_us, g_pre_us, g_post_us;
+
+uint32_t cyc_to_us(uint32_t c) { return c / (SystemCoreClock / 1000000u); }
 
 float iou(const face_box &a, const face_box &b)
 {
@@ -83,10 +85,18 @@ bool face_detector_init()
 
 uint32_t face_detector_last_us() { return g_last_us; }
 
+void face_detector_stage_us(uint32_t *pre, uint32_t *npu, uint32_t *post)
+{
+    *pre = g_pre_us;
+    *npu = g_last_us;
+    *post = g_post_us;
+}
+
 int face_detect_gray(const uint8_t *img, int w, int h, face_box *out, int max)
 {
     if (!g_module || w <= 0 || h <= 0 || w > 1024 || h > 1024) return -1;
 
+    const uint32_t t_pre = DWT->CYCCNT;
     // Letterbox: scale the longer side to 128, centre, pad with mid-grey (0.0).
     const float scale = (float)kSize / (w > h ? w : h);
     const int sw = (int)(w * scale + 0.5f), sh = (int)(h * scale + 0.5f);
@@ -111,8 +121,10 @@ int face_detect_gray(const uint8_t *img, int w, int h, face_box *out, int max)
     Tensor input(&impl);
 
     uint32_t t0 = DWT->CYCCNT;
+    g_pre_us = cyc_to_us(t0 - t_pre);
     auto outputs = g_module->forward(input);
-    g_last_us = (DWT->CYCCNT - t0) / (SystemCoreClock / 1000000u);
+    const uint32_t t_post = DWT->CYCCNT;
+    g_last_us = cyc_to_us(t_post - t0);
     if (!outputs.ok() || outputs->empty() || !outputs->front().isTensor()) {
         printf("face: forward failed (err=%u)\n", outputs.ok() ? 0u : (unsigned)outputs.error());
         return -1;
@@ -162,5 +174,6 @@ int face_detect_gray(const uint8_t *img, int w, int h, face_box *out, int max)
         out[n++] = {(cand[i].x * kSize - ox) / scale, (cand[i].y * kSize - oy) / scale,
                     cand[i].w * kSize / scale, cand[i].h * kSize / scale, cand[i].score};
     }
+    g_post_us = cyc_to_us(DWT->CYCCNT - t_post);
     return n;
 }

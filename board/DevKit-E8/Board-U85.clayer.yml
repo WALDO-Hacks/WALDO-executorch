@@ -70,6 +70,7 @@ layer:
     - component: Device:SOC Peripherals:MHU
     - component: Device:SOC Peripherals:PINCONF
     - component: Device:SOC Peripherals:UTIMER
+    - component: Device:SOC Peripherals:PDM
     # LCD (from hackathon-pico-faces): CDC200 + MIPI-DSI + ILI9806E panel
     - component: Device:SOC Peripherals:CDC
     - component: Device:SOC Peripherals:MIPI DSI
