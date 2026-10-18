@@ -46,10 +46,12 @@ until you pick another with **left/right/up/down**, drop it with **no**, or free
 
 ## Wake word
 
+**Not in the shipped build (removed 2026-10-18): every heard command word acts directly.** The text below describes the unused code path.
+
 When the HE reports that its wake detector is running (`brain_mailbox.wake_enabled`), the HP requires the wake phrase **"Hey Waldo"** before it acts on a command
 (`orch_set_wake_required`): saying it opens a **5 s** listening window, and every accepted command renews the window, so "left ... left ... no" works in one go.
 **stop** and **off** are never behind the wake word. Without a working wake detector every heard word acts, as before.
-The wake detector, its data, metrics and limits are in `documentation/wake-word.md` (when present). A word is ignored outside the window and the console prints `ignored (say "Hey Waldo" first)`.
+The wake detector, its data, metrics and limits are in `documentation/wake-word.md`. A word is ignored outside the window and the console prints `ignored (say "Hey Waldo" first)`.
 
 ## Not possible with these words
 

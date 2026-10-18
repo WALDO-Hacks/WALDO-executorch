@@ -141,7 +141,7 @@ conversions at the inputs and outputs stay on the CPU.
 | YOLOv8n on a DK-E8 (the team's own export) | 29 ms per frame; mAP50 0.439 board = 0.439 host | board |
 | Camera link, colour JPEG 320x240 | 27.8 fps, 3–12 KB per frame | camera head |
 | BlazeFace frame, v1 turret: preprocess 3.6 + NPU 9.4 + decode 0.6 + display 12.1 ms | 25.6 ms | board |
-| WALDO's YOLO frame and power, single- vs two-brain | *to measure on the board* | board |
+| WALDO's YOLO frame and power, single- vs two-brain | not measured | board |
 
 **Memory** (GCC build, two-brain):
 
@@ -250,14 +250,19 @@ SENTRY. The FVP build prints `Test_result` (BlazeFace), and with GCC also `KWS_r
 **Worked on the board (v1, branch `waldo`):** face tracking with BlazeFace on the NPU, the
 camera link, servo tracking, the LCD view, the microphones, standalone boot.
 
-**Built, host-tested and run on the FVPs; our DevKit failed during the hackathon:** YOLOv8n
-in the firmware, live keyword spotting, the orchestrator and patrol, the JPEG camera path,
-the two-brain split. *Board results go here.*
+**Ran on the DK-E8 (team-reported, 2026-10-18; no measurement stored in this repo):** YOLOv8n
+in the firmware, live keyword spotting, the orchestrator and patrol, the JPEG camera link and
+the two-brain split. Also built, host-tested and run on the FVPs (numbers above). Not measured on the
+board: WALDO's YOLO frame time and the power of single- vs two-brain.
+
+**Not in the shipped build:** the "Hey Waldo" wake word. It was removed; the code and training
+scripts stay in `he/wake*` and `model/wake/` ([documentation/wake-word.md](documentation/wake-word.md)),
+and every heard command word acts directly.
 
 **Next steps:**
 - Motion detection on the HE too, and the HP powered down while the room is quiet.
 - A second-pass check of each heard word on the HP (as Siri does).
-- Commit the wake word's trained model and measurements: the "Hey Waldo" detector (HE, [documentation/wake-word.md](documentation/wake-word.md)) is reported working on the board by the team, but its model files and numbers are not in this repo yet.
+- Bring the wake word back (code in `he/wake*`, not wired in), with its model and measured false-alarm rate.
 - Measure the power of single- vs two-brain.
 
 ## Credits and licences
