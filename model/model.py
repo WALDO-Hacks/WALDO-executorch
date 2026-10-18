@@ -1,61 +1,60 @@
-# Copyright 2026 Arm Limited and/or its affiliates.
-# SPDX-License-Identifier: Apache-2.0
-"""The example model: a tiny CNN classifier, quantized to int8 for Ethos-U85 by create_ai_layer.py.
+"""WALDO's model: BlazeFace face detection, quantized to int8 for the Ethos-U85 by create_ai_layer.py.
 
-Small enough to export in seconds and fully partition onto the NPU, but real
-enough to exercise conv / relu / pool / linear through Vela. Input is a single
-16x16 RGB image (NHWC); output is a 10-class logit vector.
+BlazeFace (MediaPipe's front-camera face detector, ~100k parameters) is all
+convolutions, ReLU, pooling and padding, so it runs on the NPU. Two changes for WALDO:
+
+- Grayscale input. The ESP32 head camera streams grayscale. Feeding the same value
+  into R, G and B is the same as one input channel whose first-layer weights are the
+  sum of the three, so the first convolution is folded to 1 input channel.
+- One output tensor, (1, 896, 5): per anchor the raw face score (a logit) and the raw
+  box offsets (x, y, w, h). The six facial keypoints are dropped. Decoding against the
+  anchors and non-max suppression run on the Cortex-M55 (src/waldo/face_detector.cpp).
+
+Input is NHWC (1, 128, 128, 1), pixels scaled to [-1, 1] (p / 127.5 - 1).
 """
 
+from pathlib import Path
+
+import numpy as np
 import torch
 from torch import nn
 
-# NHWC, the layout of a camera frame, which the Ethos-U reads as it is. An NCHW
-# input costs one more NPU operation that reorders it before the first
-# convolution.
-INPUT_SHAPE = (1, 16, 16, 3)
+from blazeface.blazeface import BlazeFace
+
+HERE = Path(__file__).resolve().parent
+INPUT_SHAPE = (1, 128, 128, 1)
 
 
-class TinyCNN(nn.Module):
-    def __init__(self, input_shape: tuple[int, ...] = INPUT_SHAPE, num_classes: int = 10) -> None:
+class WaldoFace(nn.Module):
+    def __init__(self) -> None:
         super().__init__()
-        _, height, width, channels = input_shape
-        self.features = nn.Sequential(
-            nn.Conv2d(channels, 8, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),  # 16x16 -> 8x8
-            nn.Conv2d(8, 16, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),  # 8x8 -> 4x4
-        )
-        self.classifier = nn.Linear(16 * (height // 4) * (width // 4), num_classes)
+        net = BlazeFace()
+        net.load_state_dict(torch.load(HERE / "blazeface" / "blazeface.pth", map_location="cpu"))
+        rgb = net.backbone1[0]
+        gray = nn.Conv2d(1, rgb.out_channels, rgb.kernel_size, rgb.stride, rgb.padding, bias=True)
+        with torch.no_grad():
+            gray.weight.copy_(rgb.weight.sum(dim=1, keepdim=True))
+            gray.bias.copy_(rgb.bias)
+        net.backbone1[0] = gray
+        self.net = net
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # The convolutions take NCHW. Vela folds the permutation into the first one.
-        x = self.features(x.permute(0, 3, 1, 2))
-        x = torch.flatten(x, 1)
-        return self.classifier(x)
+        boxes, scores = self.net(x.permute(0, 3, 1, 2))   # (1, 896, 16), (1, 896, 1)
+        return torch.cat((scores, boxes[..., :4]), dim=-1)
 
 
 def get_model(input_shape: tuple[int, ...] = INPUT_SHAPE) -> nn.Module:
-    # Fixed seed: the example uses untrained (random) weights, and a fixed seed
-    # keeps the exported program identical from one export to the next (the
-    # C array also embeds the Vela options, so the same working directory is
-    # part of that guarantee).
-    torch.manual_seed(0)
-    return TinyCNN(input_shape).eval()
+    assert tuple(input_shape) == INPUT_SHAPE, f"BlazeFace front model takes {INPUT_SHAPE}"
+    return WaldoFace().eval()
 
 
 def get_calibration_inputs(
-    input_shape: tuple[int, ...] = INPUT_SHAPE, calibration_samples: int = 2
+    input_shape: tuple[int, ...] = INPUT_SHAPE, calibration_samples: int = 12
 ) -> list[torch.Tensor]:
-    """Float samples for quantization calibration; the first one is also the export example.
-
-    Fixed values keep the quantization parameters, and with them the output
-    logits in the README, the same from one export to the next. Replace them
-    with representative, preprocessed data when calibrating a trained model.
-    """
-    samples = [torch.full(input_shape, 0.5), torch.full(input_shape, -0.5)][:calibration_samples]
-    for i in range(len(samples), calibration_samples):
-        samples.append(torch.randn(input_shape, generator=torch.Generator().manual_seed(i)))
+    """Face photos (grayscale, 128x128, with flips and brightness changes), scaled like on the board."""
+    faces = np.load(HERE / "blazeface" / "calib" / "faces_gray128.npy")
+    samples = []
+    for i in range(calibration_samples):
+        img = torch.from_numpy(faces[i % len(faces)].copy()).float() / 127.5 - 1.0
+        samples.append(img.reshape(input_shape))
     return samples

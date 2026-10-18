@@ -3354,7 +3354,7 @@
 //    <3=>  UART_RX_FIFO_TWO_LESS_FULL
 // <i> Defines UART0 receive fifo trigger level.
 // <i> Default: UART_RX_ONE_CHAR_IN_FIFO
-#define RTE_UART0_RX_TRIG_LVL          0
+#define RTE_UART0_RX_TRIG_LVL          2  // WALDO: camera link at 2 Mbaud, interrupt at half FIFO
 
 // <o> UART0 TX FIFO TRIGGER LEVEL
 //    <0=>  UART_TX_FIFO_EMPTY
@@ -5202,7 +5202,7 @@
 //    <3=> TOGGLE
 // <i> Defines Driver A state at compare match for UT channel 5.
 // <i> Default: NO CHANGE
-#define RTE_UTIMER_CHANNEL5_DRV_A_OP_AT_MATCH_COUNT  3
+#define RTE_UTIMER_CHANNEL5_DRV_A_OP_AT_MATCH_COUNT  1  // WALDO: servo PWM, low at compare match
 
 // <o> CHANNEL5 DRIVER A AT CYCLE END
 //    <0=> NO CHANGE
@@ -5211,7 +5211,7 @@
 //    <3=> TOGGLE
 // <i> Defines Driver A state at cycle end for UT channel 5.
 // <i> Default: NO CHANGE
-#define RTE_UTIMER_CHANNEL5_DRV_A_OP_AT_CYCLE_END    3
+#define RTE_UTIMER_CHANNEL5_DRV_A_OP_AT_CYCLE_END    2  // WALDO: high at cycle end
 
 // <o> CHANNEL5 DRIVER B START STATE
 //    <0=> LOW
@@ -5264,14 +5264,14 @@
 //    <1=> DOUBLE BUFFER
 // <i> Defines buffer type for UT channel 5.
 // <i> Default: DOUBLE BUFFER
-#define RTE_UTIMER_CHANNEL5_BUFFERING_TYPE           1
+#define RTE_UTIMER_CHANNEL5_BUFFERING_TYPE           0  // WALDO: no compare buffering (like ch10)
 
 // <o> CHANNEL5 BUFFER OPERATION
 //    <0=> DISABLE
 //    <1=> ENABLE
 // <i> Defines buffer operation for UT channel 5.
 // <i> Default: ENABLE
-#define RTE_UTIMER_CHANNEL5_BUFFER_OPERATION         1
+#define RTE_UTIMER_CHANNEL5_BUFFER_OPERATION         0  // WALDO: servo PWM writes COMPARE_A directly
 
 // <o> CHANNEL5 CAPTURE BUFFER OPERATION FOR DRIVER A
 //    <0=> NO BUFFER

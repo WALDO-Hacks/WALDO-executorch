@@ -108,10 +108,10 @@ SECTIONS
     __zero_table_start__ = .;
     LONG (ADDR(.bss))
     LONG (SIZEOF(.bss)/4)
-#if __HAS_BULK_SRAM
-    LONG (ADDR(.bss.at_sram0))
-    LONG (SIZEOF(.bss.at_sram0)/4)
-#endif
+    /* WALDO: .bss.at_sram0 is NOT zeroed here. SRAM0 is powered off at reset when
+     * the image boots from MRAM without a debugger, so touching it from startup
+     * hangs before main(). main() powers it on (sram0_power_on); its contents
+     * (ExecuTorch pools, frame buffers) don't need zeroing. */
     __zero_table_end__ = .;
     . = ALIGN(16);
   } > MRAM

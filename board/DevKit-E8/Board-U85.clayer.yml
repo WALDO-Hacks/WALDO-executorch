@@ -29,6 +29,7 @@ layer:
   define:
     - CMSIS_target_header: \"DevKit-E8.h\"
     - ETHOSU85
+    - WALDO_HW   # turret hardware (servos on J10, camera link) is on this board
     # The runner's memory pools (src/app_main.cpp) do not fit the 1 MB DTCM
     # that the Alif linker scripts use for .bss. Place them in the bulk SRAM
     # at 0x02000000 (NPU-accessible; SRAM0+SRAM1 combined, 8 MB, with the AC6
@@ -67,6 +68,7 @@ layer:
 
     - component: Device:SOC Peripherals:MHU
     - component: Device:SOC Peripherals:PINCONF
+    - component: Device:SOC Peripherals:UTIMER
 
     - component: Machine Learning:NPU Support:Ethos-U Driver&Generic U85
 

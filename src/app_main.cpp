@@ -1,112 +1,58 @@
-// Copyright 2026 Arm Limited and/or its affiliates.
-// SPDX-License-Identifier: Apache-2.0
-//
-// Headless ExecuTorch runner for the Ethos-U85 example. Loads the .pte
-// embedded by the AI layer (model_pte.h, see create_ai_layer.py), runs one
-// inference on the NPU, and prints the output logits. Built entirely from the
-// PyTorch::ExecuTorch pack's runtime + operator components; the board layer
-// provides main(), stdout and the Ethos-U driver init and then calls app_main.
-//
-// EmbeddedModule (arm_embedded_module.hpp) manages program loading, method
-// memory and execution, like ExecuTorch's Module class does on POSIX hosts.
+/*
+ * Copyright 2026 Arm Limited and/or its affiliates.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
 
-#include <array>
+// WALDO: a pan/tilt turret that points a flashlight at the faces it finds.
+// BlazeFace runs on the Ethos-U85 through ExecuTorch (model/model.py, src/face_detector.cpp).
+//
+// Every target first runs a self-test on a face photo built into the image and prints
+// Test_result: PASS when it finds the face (this is what the FVP run shows). On the
+// DevKit-E8 it then runs the turret: ESP32 camera frames -> faces on the NPU -> servos.
+
 #include <cstdint>
 #include <cstdio>
-#include <memory>
 
-#include <executorch/extension/data_loader/buffer_data_loader.h>
-#include <executorch/runtime/core/evalue.h>
-#include <executorch/runtime/core/exec_aten/exec_aten.h>
-#include <executorch/runtime/core/memory_allocator.h>
 #include <executorch/runtime/platform/runtime.h>
 
-#include "arm_embedded_module.hpp"
+#include "face_detector.hpp"
 #include "model_pte.h"
-
-using arm::embedded::EmbeddedModule;
-using executorch::aten::DimOrderType;
-using executorch::aten::ScalarType;
-using executorch::aten::SizesType;
-using executorch::aten::Tensor;
-using executorch::aten::TensorImpl;
-using executorch::extension::BufferDataLoader;
-using executorch::runtime::EValue;
-using executorch::runtime::MemoryAllocator;
-
-namespace {
-
-// Pool sizes and placement are board-overridable: a board layer that cannot
-// fit 8 MB of .bss in its default RAM sets APP_*_POOL_SIZE and, via
-// APP_POOL_SECTION, the linker section its linker script routes to a larger
-// (NPU-accessible) memory.
-#ifndef APP_METHOD_POOL_SIZE
-#define APP_METHOD_POOL_SIZE (4 * 1024 * 1024)
+#include "test_face.h"
+#ifdef WALDO_HW
+#include "waldo/waldo.h"
 #endif
-#ifndef APP_TEMP_POOL_SIZE
-#define APP_TEMP_POOL_SIZE (4 * 1024 * 1024)  // Ethos-U scratch is drawn from here.
-#endif
-#ifdef APP_POOL_SECTION
-#define APP_POOL_ATTRIBUTES __attribute__((section(APP_POOL_SECTION)))
-#else
-#define APP_POOL_ATTRIBUTES
-#endif
-
-constexpr size_t kMethodPoolSize = APP_METHOD_POOL_SIZE;
-constexpr size_t kTempPoolSize = APP_TEMP_POOL_SIZE;
-
-alignas(16) uint8_t g_method_pool[kMethodPoolSize] APP_POOL_ATTRIBUTES;
-alignas(16) uint8_t g_temp_pool[kTempPoolSize] APP_POOL_ATTRIBUTES;
-
-}  // namespace
 
 extern "C" int app_main(void) {
   executorch::runtime::runtime_init();
+  printf("WALDO face detector: BlazeFace, %lu byte ExecuTorch program on the Ethos-U85\n",
+         static_cast<unsigned long>(model_pte_size));
 
-  printf("ExecuTorch Ethos-U85 example: %lu byte model\n", model_pte_size);
-
-  EmbeddedModule module(
-      model_pte, model_pte_size,
-      std::make_unique<BufferDataLoader>(model_pte, model_pte_size),
-      std::make_unique<MemoryAllocator>(kMethodPoolSize, g_method_pool),
-      std::make_unique<MemoryAllocator>(kTempPoolSize, g_temp_pool));
-
-  // TinyCNN takes one 16x16 RGB image in NHWC order (see model/model.py),
-  // filled here with a deterministic ramp. The tensor only wraps the buffer;
-  // no tensor extension (and its std::random_device) is needed for that.
-  alignas(16) static float input_data[16 * 16 * 3];
-  for (size_t i = 0; i < sizeof(input_data) / sizeof(input_data[0]); ++i) {
-    input_data[i] = static_cast<float>(i % 32) / 32.0f - 0.5f;
-  }
-  std::array<SizesType, 4> sizes{1, 16, 16, 3};
-  std::array<DimOrderType, 4> dim_order{0, 1, 2, 3};
-  TensorImpl input_impl(ScalarType::Float, sizes.size(), sizes.data(), input_data, dim_order.data());
-  Tensor input(&input_impl);
-
-  auto outputs = module.forward(input);
-  if (!outputs.ok()) {
-    printf("forward failed (err=%u)\n", static_cast<unsigned>(outputs.error()));
-    return 1;
-  }
-  if (outputs->empty()) {
-    printf("forward returned no outputs\n");
+  if (!face_detector_init()) {
+    printf("face detector init failed\n");
     return 1;
   }
 
-  const EValue& out = outputs->front();
-  if (out.isTensor()) {
-    Tensor t = out.toTensor();
-    printf("Output: %u element(s):", static_cast<unsigned>(t.numel()));
-    if (t.scalar_type() == ScalarType::Float) {
-      const float* p = t.const_data_ptr<float>();
-      for (size_t i = 0; i < t.numel(); ++i) {
-        printf(" %.4f", p[i]);
-      }
+  face_box faces[4];
+  int n = face_detect_gray(test_face_128, 128, 128, faces, 4);
+  printf("Self-test: %d face(s), NPU inference %lu us\n", n,
+         static_cast<unsigned long>(face_detector_last_us()));
+  for (int i = 0; i < n; i++) {
+    printf("  face %d: x %.0f y %.0f w %.0f h %.0f, score %.2f\n", i, (double)faces[i].x,
+           (double)faces[i].y, (double)faces[i].w, (double)faces[i].h, (double)faces[i].score);
+  }
+  printf("Test_result: %s\n", n == 1 ? "PASS" : "FAIL");
+
+#ifdef WALDO_HW
+  if (waldo_init() == 0) {
+    waldo_servo_test();
+    waldo_home();
+    while (true) {
+      waldo_poll();
     }
-    printf("\n");
   }
-
-  printf("Test_result: PASS\n");
+#endif
   printf("\x04");  // EOT: ends the FVP run (semihosting exit); a board just sees a 0x04
   fflush(stdout);
   return 0;

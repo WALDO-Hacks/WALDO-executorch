@@ -118,7 +118,7 @@ solution:
   # keys under model: are passed through to create_ai_layer.py.
   # https://open-cmsis-pack.github.io/cmsis-toolbox/build-overview/#mlops-information
   mlops:
-    description: TinyCNN int8 image classifier for Ethos-U85
+    description: WALDO face detector (BlazeFace, int8) for Ethos-U85
     npu:
       type: Ethos-U85 # explicit: the Ensemble pack lists an Ethos-U55 first
     vela:
@@ -130,8 +130,8 @@ solution:
       memory: Shared_Sram
     model:
       clayer: $AI-Layer$
-      name: TinyCNN
+      name: BlazeFace
       # Model parameters for create_ai_layer.py: the NHWC input shape and the
       # number of samples the quantizer is calibrated with.
-      input-shape: 1x16x16x3
-      calibration-samples: 2
+      input-shape: 1x128x128x1
+      calibration-samples: 12
