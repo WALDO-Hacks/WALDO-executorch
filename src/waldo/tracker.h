@@ -1,6 +1,6 @@
 // Turns detection boxes into turret motion. The camera rides on the tilt head: each frame
-// turns the turret part of the way to centring the target, and between frames it keeps
-// turning at the target's estimated speed (tracker.cpp has the details).
+// aims the turret part of the way to where the target is (the camera's delay accounted
+// for); through a short loss it coasts at the target's speed (tracker.cpp has the details).
 #pragma once
 #include <stdint.h>
 #include "detector.h"
@@ -12,8 +12,8 @@
 // target class (people until a switch picks something else). Returns true if a
 // target was among the boxes. A box of class DET_MOTION is always a target.
 bool tracker_update(const struct det_box *boxes, int n, int img_w, int img_h, uint32_t now_ms);
-// Call every loop: records where the turret points, and while `following` turns with the
-// target between frames, coasts through short misses and searches the way a lost target went.
+// Call every loop: records where the turret points, and while `following` coasts through
+// short misses and searches the way a lost target went.
 void tracker_tick(uint32_t now_ms, bool following);
 void tracker_print(void);
 // Index (in the last boxes passed to tracker_update) of the target being followed, or -1.

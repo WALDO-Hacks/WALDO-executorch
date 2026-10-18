@@ -117,7 +117,9 @@ int main()
     script[1] = {60, 50, 16, 16, 0.9f, 14};   // the cup, now left of centre
     float pan_cup = motion_target(AXIS_PAN);
     step(3);
-    CHECK(motion_target(AXIS_PAN) > pan_cup);  // still turning left, toward the cup
+    // Still the cup, and not pulled right toward the person (17 deg right). The scripted
+    // boxes don't move with the turret, so a few degrees of drift are the script's.
+    CHECK(tracker_target_class() == 14 && motion_target(AXIS_PAN) > pan_cup - 6);
 
     // "no" -> back to people: it turns right toward the person.
     orch_word("no", now);

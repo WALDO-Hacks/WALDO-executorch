@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <math.h>
 
 #include "RTE_Components.h"
@@ -217,14 +218,58 @@ void waldo_poll(void)
 #endif
 }
 
+// Mean absolute difference between two grayscale frames (every 4th pixel).
+static uint32_t frame_diff(const uint8_t *a, const uint8_t *b, uint32_t n)
+{
+    uint32_t sum = 0, k = 0;
+    for (uint32_t i = 0; i < n; i += 4, k++) sum += a[i] > b[i] ? a[i] - b[i] : b[i] - a[i];
+    return k ? sum / k : 0;
+}
+
+// Waits n ms like wait_ms(), and measures the loop delay the tracker has to live with: the
+// time from a servo command to the first camera frame that shows the turret moving.
+static void wait_ms_probe(uint32_t n, const char *what)
+{
+    static uint8_t prev[CAM_MAX_W * CAM_MAX_H];
+    const uint32_t t0 = ms;
+    uint32_t seen = 0, base = 0, base_n = 0, frames = 0;
+    bool have_prev = false, done = false;
+    while (ms - t0 < n) {
+        waldo_poll();
+        const struct cam_frame *f = camlink_latest();
+        if (!f || f->count == seen) continue;
+        seen = f->count;
+        const uint32_t npx = (uint32_t)f->width * f->height;
+        if (have_prev && !done) {
+            const uint32_t d = frame_diff(f->pix, prev, npx);
+            frames++;
+            // The first frames after the command still show the old view: their difference is
+            // the scene's own noise. A frame clearly above it shows the move.
+            if (frames <= 1) {
+                base += d;
+                base_n++;
+            } else if (d > 6 && d > 3 * (base / (base_n ? base_n : 1)) + 2) {
+                printf("WALDO: loop delay probe (%s): the camera showed the move %lu ms after the command "
+                       "(frame diff %lu, scene noise %lu)\n", what, (unsigned long)(ms - t0), (unsigned long)d,
+                       (unsigned long)(base / (base_n ? base_n : 1)));
+                done = true;
+            }
+        }
+        memcpy(prev, f->pix, npx);
+        have_prev = true;
+    }
+    if (!done && frames) printf("WALDO: loop delay probe (%s): no clear move seen\n", what);
+}
+
 void waldo_servo_test(void)
 {
     static const float steps[][2] = {{30, PARK_TILT}, {0, PARK_TILT}, {0, 0}, {0, PARK_TILT}};
-    for (auto &s : steps) {
-        printf("WALDO: aim pan %.0f tilt %.0f\n", (double)s[0], (double)s[1]);
-        motion_set(AXIS_PAN, s[0]);
-        motion_set(AXIS_TILT, s[1]);
-        wait_ms(1500);
+    static const char *const what[] = {"pan 30", "pan back", "tilt up", "tilt down"};
+    for (unsigned i = 0; i < sizeof steps / sizeof steps[0]; i++) {
+        printf("WALDO: aim pan %.0f tilt %.0f\n", (double)steps[i][0], (double)steps[i][1]);
+        motion_set(AXIS_PAN, steps[i][0]);
+        motion_set(AXIS_TILT, steps[i][1]);
+        wait_ms_probe(1500, what[i]);
     }
 }
 

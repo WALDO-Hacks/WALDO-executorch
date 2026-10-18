@@ -6,25 +6,29 @@
 #include "motion.h"
 
 static struct {
-    float fov_long = 56;        // OV3660, 66.5-68 deg diagonal (vendor specs) -> 55-57 deg across the 4:3 long side
+    float fov_long = 50;        // OV3660 lenses: 66.5-68 deg diagonal -> 55-57 deg across the 4:3 long side;
+                                // assume a bit less: a real view WIDER than assumed is the safe side
     float deadband = 2.0f;      // degrees: closer than this to a still target, don't move
     int sign_pan = 1, sign_tilt = 1;
 } cfg;
 
-// Two parts, so a wrong guess of the camera delay can't make the turret swing:
-//  - position: each detection turns the turret a fraction (kKp) of the way to centring
-//    the target, from the error measured in the image itself;
-//  - speed: an alpha-beta filter on the target's angle in the room (where the turret
-//    pointed when the frame was taken + the offset in it) estimates how fast it moves.
-//    Between frames the turret keeps turning at that speed (feed-forward), so a runner
-//    isn't left behind. When detections stop it carries on that way for a moment
-//    (coast), then looks a bit further that way (search) before the orchestrator gives up.
-constexpr float kKp = 0.35f;            // fraction of the image error corrected per frame
+// Steering, in turret angles. A camera frame is ~kFrameAgeMs old when the detector sees it,
+// so the turret has moved since. The target's angle in the room is where the turret pointed
+// when the frame was taken (a short position history) plus the target's offset in the frame.
+// Each frame moves the aim kGain of the way to that angle. Aiming at where the target IS,
+// rather than nudging by the error, doesn't re-correct an error the turret already corrected
+// in the frames still on their way, so it doesn't swing on a long delay (tests/host/test_runner,
+// real delays 150-350 ms).
+// An alpha-beta filter on those angles estimates the target's speed. It is NOT fed to the
+// servos while the target is seen; it only carries the turret through a short loss (coast,
+// capped at kCoastMaxDeg) and, if the target left at an edge of the picture, makes it look a
+// bit further that way (search). It also helps to recognise the same target next frame.
+constexpr float kGain = 0.5f;           // fraction of the way to the target's angle per frame
 constexpr float kAlpha = 0.6f;          // filter: position correction per measurement
-constexpr float kBeta = 0.05f;          // filter: speed correction per measurement
-constexpr float kFeedForward = 0.5f;    // fraction of the estimated speed turned with (robust to a wrong delay)
+constexpr float kBeta = 0.3f;           // filter: speed correction per measurement
 constexpr float kMaxSpeed = 150;        // deg/s, a sprinting person a few metres away
-constexpr uint32_t kFrameAgeMs = 160;   // capture + JPEG + 2 Mbaud UART + decode + YOLO, est. 150-200 ms
+constexpr uint32_t kFrameAgeMs = 250;   // capture + JPEG + 2 Mbaud UART + decode + YOLO; the boot
+                                        // "loop delay probe" measures it on the board
 constexpr uint32_t kFreshMs = 1000;     // a measurement older than this restarts the filter
 constexpr uint32_t kCoastMs = 700;      // after the last sighting: keep turning at its speed
 constexpr uint32_t kSearchMs = 2500;    // then: look up to kSearchDeg further the way it went
@@ -44,6 +48,12 @@ constexpr uint32_t kHistEveryMs = 10;
 static struct { uint32_t t; float pan, tilt; } hist[kHist];
 static unsigned hist_n;
 
+// A clock that went backwards (a restart; the host tests) makes the history meaningless.
+static void hist_check(uint32_t now)
+{
+    if (hist_n && (int32_t)(now - hist[(hist_n - 1) % kHist].t) < 0) hist_n = 0;
+}
+
 static void turret_at(uint32_t t, float *pan, float *tilt)
 {
     *pan = motion_pos(AXIS_PAN);
@@ -60,6 +70,8 @@ static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ?
 
 static uint32_t last_tick;
 static bool searched;
+static float coast_deg;                 // turned so far while coasting without a sighting
+constexpr float kCoastMaxDeg = 25;      // a coast never turns further than this
 
 static int target_index = -1;
 static int switch_dir;   // pending tracker_switch()
@@ -79,6 +91,7 @@ static struct {
     float cx, cy, w;
     uint32_t last_seen_ms, seen;
     float err_pan, err_tilt;
+    int exit_dir;   // +1/-1: last seen near the frame's left/right edge (turn +pan/-pan to follow), else 0
 } st;
 
 bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32_t now)
@@ -87,6 +100,7 @@ bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
     // box of the target class.
     // "Still there" = near where the filter predicts it now, in turret angles, so a target
     // that moved (or a turret that turned) between frames is still recognised.
+    hist_check(now);
     const float deg_px = cfg.fov_long / (img_w > img_h ? img_w : img_h);
     float pan_then, tilt_then;
     turret_at(now - kFrameAgeMs, &pan_then, &tilt_then);
@@ -174,10 +188,10 @@ bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
     }
     target_index = pick;
     st.cx = b[pick].x + b[pick].w / 2.0f;
-    // A flashlight shouldn't shine in people's eyes: aim a person at 65% of the way down the
-    // box (the chest in a head-and-shoulders view, the waist in a full-body one); objects
-    // at their centre.
-    st.cy = b[pick].y + b[pick].h * (b[pick].cls == 0 ? 0.65f : 0.5f);
+    // Aim at the centre of the box (people and objects alike), so the beam and the screen's
+    // centre mark sit on the target. A close person's box is cut off by the frame edge; its
+    // centre then moves with the tilt, which only softens the correction (no feedback loop).
+    st.cy = b[pick].y + b[pick].h * 0.5f;
     st.w = b[pick].w;
     st.has_target = true;
     st.at_home = false;
@@ -210,13 +224,21 @@ bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
     }
     kf_t = now;
     searched = false;
-    if (fabsf(st.err_pan) > cfg.deadband) motion_nudge(AXIS_PAN, kKp * st.err_pan);
-    if (fabsf(st.err_tilt) > cfg.deadband) motion_nudge(AXIS_TILT, kKp * st.err_tilt);
+    coast_deg = 0;
+    // Near the left or right edge of the picture: if it disappears now, it left that way.
+    const float half_w = img_w / 2.0f * deg_per_px;
+    st.exit_dir = fabsf(st.err_pan) > 0.5f * half_w ? (st.err_pan > 0 ? 1 : -1) : 0;
+    // Aim part of the way to where the target is (meas: turret then + offset in the frame).
+    for (int a = 0; a < 2; a++) {
+        const float to = meas[a] - motion_target(a);
+        if (fabsf(to) > cfg.deadband) motion_set(a, motion_target(a) + kGain * to);
+    }
     return true;
 }
 
 void tracker_tick(uint32_t now, bool following)
 {
+    hist_check(now);
     if (!hist_n || now - hist[(hist_n - 1) % kHist].t >= kHistEveryMs) {
         hist[hist_n % kHist] = {now, motion_pos(AXIS_PAN), motion_pos(AXIS_TILT)};
         hist_n++;
@@ -227,19 +249,23 @@ void tracker_tick(uint32_t now, bool following)
     // longer gap (a stall) is not turned into one big jump.
     if (!following || !kf_on || dt <= 0 || dt > 0.5f) return;
     const uint32_t since = now - kf_t;
-    if (since < kCoastMs) {   // also bounds it if frames stop arriving altogether
-        // Feed-forward: turn with a moving target between frames and through short misses
-        // (motion blur, a pillar). A still target's "speed" is box noise: ignore it.
-        // While it is seen, the image error closes the loop, so only part of the speed is
-        // fed forward (a wrong delay guess can't build up into a swing); unseen, nothing
-        // corrects the coast, so it uses the full speed.
-        const float ff = st.has_target ? kFeedForward : 1.0f;
-        for (int a = 0; a < 2; a++)
-            if (fabsf(kf[a].v) >= kMovingDegS) motion_nudge(a, ff * kf[a].v * dt);
-    } else if (!searched && since < kCoastMs + kSearchMs && fabsf(kf[AXIS_PAN].v) >= kMovingDegS) {
-        // Out of sight while moving: it most likely carried on. Look further that way.
+    if (!st.has_target && since < kCoastMs) {   // also bounds it if frames stop arriving altogether
+        // Coast: a short miss (motion blur, a pillar): keep turning at the target's speed.
+        // Capped (kCoastMaxDeg), so a bad speed estimate can't fling the turret across the room.
+        // A still target's "speed" is box noise: ignore it.
+        for (int a = 0; a < 2; a++) {
+            if (fabsf(kf[a].v) < kMovingDegS || coast_deg >= kCoastMaxDeg) continue;
+            const float step = kf[a].v * dt;
+            coast_deg += fabsf(step);
+            motion_nudge(a, step);
+        }
+    } else if (!searched && since < kCoastMs + kSearchMs && fabsf(kf[AXIS_PAN].v) >= kMovingDegS &&
+               st.exit_dir == (kf[AXIS_PAN].v > 0 ? 1 : -1)) {
+        // Out of sight while moving, and it was last seen at that edge of the picture: it
+        // most likely carried on that way. Look further that way. (The edge comes from the
+        // image itself, so a wrong speed estimate alone can't trigger this.)
         searched = true;
-        motion_nudge(AXIS_PAN, kf[AXIS_PAN].v > 0 ? kSearchDeg : -kSearchDeg);
+        motion_nudge(AXIS_PAN, st.exit_dir * kSearchDeg);
     }
 }
 
