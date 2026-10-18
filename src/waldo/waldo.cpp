@@ -16,6 +16,7 @@
 #include "mic.h"
 #include "kws.hpp"
 #include "orchestrator.h"
+#include "view.h"
 
 // Per-stage timing (DWT cycle counter, started by face_detector_init): mean and worst
 // over each 2 s stats window, printed with the stats.
@@ -102,23 +103,7 @@ void waldo_poll(void)
         }
         uint32_t c = cycles();
 
-        // What WALDO sees, on the LCD: the camera frame (colour when the head sends JPEG),
-        // detections boxed with the tracked one green, and a bar showing the state.
-        const bool colour = f->rgb != nullptr;
-        const int k = colour ? 2 : 1;   // boxes are in grayscale-frame pixels
-        if ((colour ? board_display_image(f->rgb, f->rgb_w, f->rgb_h, 3)
-                    : board_display_image(f->pix, f->width, f->height, 1)) == 0) {
-            for (int i = 0; i < n; i++) {
-                bool target = i == tracker_target_index() && orch_state() == ORCH_TRACK;
-                board_display_box(k * boxes[i].x, k * boxes[i].y, k * boxes[i].w, k * boxes[i].h,
-                                  target ? 0 : 255, target ? 255 : 200, 0, target ? 3 : 2);
-            }
-            // Centre mark: the tracker drives the target onto it.
-            board_display_box(k * f->width / 2 - 2, k * f->height / 2 - 2, 5, 5, 255, 255, 255, 1);
-            static const uint8_t bar[4][3] = {{220, 0, 0}, {0, 90, 255}, {0, 220, 0}, {255, 200, 0}};
-            const uint8_t *col = bar[orch_state()];
-            board_display_box(0, 0, k * f->width, 3 * k, col[0], col[1], col[2], 2 * k);
-        }
+        waldo_view_draw(f, boxes, n, tracker_target_index(), orch_state());
         st_add_cyc(ST_DISPLAY, cycles() - c);
         st_add_cyc(ST_FRAME, cycles() - cf);
     }

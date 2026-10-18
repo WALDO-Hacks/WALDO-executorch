@@ -60,3 +60,26 @@ int jpeg_frame_decode(const uint8_t *jpg, uint32_t len, uint8_t *rgb, uint8_t *g
     }
     return 0;
 }
+
+void frame_rotate(const uint8_t *src, uint8_t *dst, uint16_t w, uint16_t h, int bpp, int deg,
+                  uint16_t *ow, uint16_t *oh)
+{
+    if (deg == 0) {
+        memcpy(dst, src, (size_t)w * h * bpp);
+        *ow = w;
+        *oh = h;
+        return;
+    }
+    const uint16_t nw = deg == 180 ? w : h, nh = deg == 180 ? h : w;
+    for (uint32_t y = 0; y < h; y++) {
+        for (uint32_t x = 0; x < w; x++) {
+            uint32_t nx, ny;
+            if (deg == 90) { nx = h - 1 - y; ny = x; }
+            else if (deg == 180) { nx = w - 1 - x; ny = h - 1 - y; }
+            else { nx = y; ny = w - 1 - x; }   /* 270 */
+            memcpy(dst + (ny * nw + nx) * bpp, src + (y * w + x) * bpp, bpp);
+        }
+    }
+    *ow = nw;
+    *oh = nh;
+}

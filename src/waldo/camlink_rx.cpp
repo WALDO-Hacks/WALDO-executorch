@@ -63,7 +63,7 @@ static camlink_hdr_t hdr;
 static uint32_t got;
 #define MAX_PAYLOAD 32768u   // a 320x240 JPEG is ~8-15 KB; a raw grayscale frame 19.2 KB
 static uint8_t staging[MAX_PAYLOAD];
-// Decoded colour frame and the rotation scratch, in SRAM1 (230 KB each).
+// Decoded colour frame and its rotated copy (what the models and the screen use), in SRAM1.
 static uint8_t rgb_buf[JPEG_MAX_W * JPEG_MAX_H * 3] __attribute__((section(".bss.sram1.cam_rgb"), aligned(32)));
 static uint8_t rot_buf[JPEG_MAX_W * JPEG_MAX_H * 3] __attribute__((section(".bss.sram1.cam_rot"), aligned(32)));
 static uint8_t gray_buf[CAM_MAX_W * CAM_MAX_H];
@@ -72,36 +72,6 @@ static uint8_t sum_bytes[2];
 
 static struct cam_frame latest;
 static uint32_t n_ok, n_bad, first_ok_ms, last_ok_ms;
-
-// Rotates src (w x h, bpp bytes per pixel) clockwise by WALDO_CAM_ROTATE into dst and
-// updates w, h. With 0 it is a copy (or nothing if src == dst); for colour frames dst is
-// scratch and the result is copied back into src.
-static void rotate(uint8_t *src, uint8_t *dst, uint16_t w, uint16_t h, int bpp, uint16_t *ow, uint16_t *oh)
-{
-    const int rot = WALDO_CAM_ROTATE;
-    const bool in_place = bpp == 3;   // colour: rotate into scratch, copy back
-    uint8_t *out = dst;
-    const uint32_t n = (uint32_t)w * h * bpp;
-    if (rot == 0) {
-        if (!in_place && src != dst) memcpy(dst, src, n);
-        *ow = w;
-        *oh = h;
-        return;
-    }
-    const uint16_t nw = (rot == 180) ? w : h, nh = (rot == 180) ? h : w;
-    for (uint32_t y = 0; y < h; y++) {
-        for (uint32_t x = 0; x < w; x++) {
-            uint32_t nx, ny;
-            if (rot == 90) { nx = h - 1 - y; ny = x; }
-            else if (rot == 180) { nx = w - 1 - x; ny = h - 1 - y; }
-            else { nx = y; ny = w - 1 - x; }   // 270
-            memcpy(out + (ny * nw + nx) * bpp, src + (y * w + x) * bpp, bpp);
-        }
-    }
-    if (in_place) memcpy(src, out, n);
-    *ow = nw;
-    *oh = nh;
-}
 
 static void frame_done(uint32_t now_ms)
 {
@@ -119,16 +89,12 @@ static void frame_done(uint32_t now_ms)
             n_bad++;
             return;
         }
-        latest.rgb_w = jw;
-        latest.rgb_h = jh;
-        rotate(rgb_buf, rot_buf, jw, jh, 3, &latest.rgb_w, &latest.rgb_h);
-        latest.rgb = rgb_buf;
-        w = jw / 2;
-        h = jh / 2;
-        rotate(gray_buf, latest.pix, w, h, 1, &w, &h);
+        frame_rotate(rgb_buf, rot_buf, jw, jh, 3, WALDO_CAM_ROTATE, &latest.rgb_w, &latest.rgb_h);
+        latest.rgb = rot_buf;
+        frame_rotate(gray_buf, latest.pix, jw / 2, jh / 2, 1, WALDO_CAM_ROTATE, &w, &h);
         decode_us = (DWT->CYCCNT - t0) / (SystemCoreClock / 1000000u);
     } else {
-        rotate(staging, latest.pix, w, h, 1, &w, &h);
+        frame_rotate(staging, latest.pix, w, h, 1, WALDO_CAM_ROTATE, &w, &h);
         latest.rgb = NULL;
         decode_us = 0;
     }
