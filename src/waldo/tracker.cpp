@@ -6,7 +6,7 @@
 #include "motion.h"
 
 static struct {
-    float hfov = 60;            // ESP32 OV3660 at 160x120, horizontal, degrees
+    float fov_long = 60;        // ESP32 OV3660: degrees across the sensor's long side
     float kp = 0.35f;           // fraction of the angle error corrected per frame
     float deadband = 1.5f;      // degrees
     int sign_pan = 1, sign_tilt = 1;
@@ -78,10 +78,11 @@ void tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
     st.last_seen_ms = now;
     st.seen++;
 
-    // Angle of the target off the optical axis; +x right, +y down in the image.
-    float vfov = cfg.hfov * img_h / img_w;
-    float ex = (st.cx / img_w - 0.5f) * cfg.hfov;
-    float ey = (st.cy / img_h - 0.5f) * vfov;
+    // Angle of the target off the optical axis; +x right, +y down in the image. The frame
+    // may be rotated (WALDO_CAM_ROTATE), so the field of view goes with the long side.
+    float deg_per_px = cfg.fov_long / (img_w > img_h ? img_w : img_h);
+    float ex = (st.cx - img_w / 2.0f) * deg_per_px;
+    float ey = (st.cy - img_h / 2.0f) * deg_per_px;
     // +pan turns left and +tilt points up, so a target right of / below centre needs negative.
     st.err_pan = -ex * cfg.sign_pan;
     st.err_tilt = -ey * cfg.sign_tilt;
