@@ -62,7 +62,12 @@ static enum { HUNT, HEADER, PAYLOAD, CHECKSUM } state = HUNT;
 static camlink_hdr_t hdr;
 static uint32_t got;
 #define MAX_PAYLOAD 32768u   // a 320x240 JPEG is ~8-15 KB; a raw grayscale frame 19.2 KB
-static uint8_t staging[MAX_PAYLOAD];
+// Two payload buffers: the parser fills one while the last good frame waits in the other,
+// so only the newest frame is decoded (once per camlink_poll, not every frame that arrives).
+static uint8_t payload[2][MAX_PAYLOAD];
+static uint8_t *staging = payload[0];
+static uint8_t *ready;
+static camlink_hdr_t ready_hdr;
 // Decoded colour frame and its rotated copy (what the models and the screen use), in SRAM1.
 static uint8_t rgb_buf[JPEG_MAX_W * JPEG_MAX_H * 3] __attribute__((section(".bss.sram1.cam_rgb"), aligned(32)));
 static uint8_t rot_buf[JPEG_MAX_W * JPEG_MAX_H * 3] __attribute__((section(".bss.sram1.cam_rot"), aligned(32)));
@@ -71,15 +76,27 @@ static uint32_t decode_us;
 static uint8_t sum_bytes[2];
 
 static struct cam_frame latest;
-static uint32_t n_ok, n_bad, first_ok_ms, last_ok_ms;
+static uint32_t n_ok, n_bad, n_skipped, first_ok_ms, last_ok_ms;
 
-static void frame_done(uint32_t now_ms)
+// Checksum the finished payload; a good one becomes the frame waiting to be decoded.
+static void frame_done(void)
 {
     uint16_t sum = (uint16_t)(sum_bytes[0] | (sum_bytes[1] << 8));
     if (sum != camlink_fletcher16(staging, hdr.len)) {
         n_bad++;
         return;
     }
+    if (ready) n_skipped++;   // a newer frame replaces one never decoded
+    ready = staging;
+    ready_hdr = hdr;
+    staging = (staging == payload[0]) ? payload[1] : payload[0];
+}
+
+static void frame_decode(uint32_t now_ms)
+{
+    const camlink_hdr_t hdr = ready_hdr;
+    const uint8_t *staging = ready;
+    ready = NULL;
     uint16_t w = hdr.width, h = hdr.height;
     if (hdr.format == CAMLINK_FMT_JPEG) {
         const uint32_t t0 = DWT->CYCCNT;
@@ -145,13 +162,14 @@ void camlink_poll(uint32_t now_ms)
         case CHECKSUM:
             sum_bytes[got++] = b;
             if (got == 2) {
-                frame_done(now_ms);
+                frame_done();
                 got = 0;
                 state = HUNT;
             }
             break;
         }
     }
+    if (ready) frame_decode(now_ms);
 }
 
 // ---------- API ----------
@@ -174,6 +192,8 @@ int camlink_init(void)
 }
 
 uint32_t camlink_decode_us(void) { return decode_us; }
+
+uint32_t camlink_skipped(void) { return n_skipped; }
 
 const struct cam_frame *camlink_latest(void)
 {

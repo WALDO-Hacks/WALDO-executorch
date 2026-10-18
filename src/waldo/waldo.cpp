@@ -145,10 +145,10 @@ void waldo_poll(void)
             for (uint32_t i = 0; i < (uint32_t)f->width * f->height; i++) mean += f->pix[i];
             mean /= (uint32_t)f->width * f->height;
         }
-        printf("camera link: %lu ok, %lu bad, %lu lost chunks, %.1f fps, brightness %lu, %s %ux%u, JPEG decode %lu us\n",
+        printf("camera link: %lu ok, %lu bad, %lu lost chunks, %.1f fps, brightness %lu, %s %ux%u, JPEG decode %lu us, %lu skipped\n",
                (unsigned long)ok, (unsigned long)bad, (unsigned long)lost, (double)fps, (unsigned long)mean,
                f && f->rgb ? "colour" : "gray", f ? f->width : 0, f ? f->height : 0,
-               (unsigned long)camlink_decode_us());
+               (unsigned long)camlink_decode_us(), (unsigned long)camlink_skipped());
         orch_print(now);
         tracker_print();
         st_print(now - last_stats);

@@ -106,7 +106,7 @@ solution:
   build-types:
     - type: Debug
       debug: on
-      optimize: debug
+      optimize: speed   # -O3-level: the CPU-side int8 conversions of YOLO were 131 ms of a 145 ms forward at debug level
 
   projects:
     - project: ./cmsis-executorch.cproject.yml

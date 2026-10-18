@@ -153,7 +153,7 @@ int kws_classify(const float *mfcc, float *probs)
 namespace {
 constexpr int kClassifyEvery = 10;      // MFCC frames (20 ms each) between classifications
 constexpr int kSmooth = 3;              // classifications averaged
-constexpr float kThreshold = 0.70f;     // averaged probability to accept a word
+constexpr float kThreshold = 0.80f;     // averaged probability to accept a word (0.80: half the false triggers of 0.70 in the TTS test, same hit rate)
 constexpr uint32_t kRepeatMs = 1000;    // the same word again only after this
 
 int16_t g_frame[KWS_FRAME];             // the last 640 samples

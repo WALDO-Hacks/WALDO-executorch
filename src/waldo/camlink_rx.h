@@ -29,3 +29,5 @@ const struct cam_frame *camlink_latest(void);
 void camlink_stats(uint32_t now_ms, uint32_t *ok, uint32_t *bad, uint32_t *lost, float *fps);
 // Microseconds the last JPEG decode (+ rotation) took; 0 in grayscale mode.
 uint32_t camlink_decode_us(void);
+// Good frames replaced by a newer one before they were decoded.
+uint32_t camlink_skipped(void);
