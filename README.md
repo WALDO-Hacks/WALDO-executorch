@@ -256,7 +256,8 @@ the two-brain split. *Board results go here.*
 
 **Next steps:**
 - Motion detection on the HE too, and the HP powered down while the room is quiet.
-- A second-pass check of each heard word on the HP (as Siri does), and a wake word.
+- A second-pass check of each heard word on the HP (as Siri does).
+- Commit the wake word's trained model and measurements: the "Hey Waldo" detector (HE, [documentation/wake-word.md](documentation/wake-word.md)) is reported working on the board by the team, but its model files and numbers are not in this repo yet.
 - Measure the power of single- vs two-brain.
 
 ## Credits and licences

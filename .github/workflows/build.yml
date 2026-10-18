@@ -8,9 +8,9 @@ name: Build and Run
 on:
   workflow_dispatch:
   push:
-    branches: [hackathon]
+    branches: [hackathon, two-brain]
   pull_request:
-    branches: [hackathon]
+    branches: [hackathon, two-brain]
 
 env:
   SOLUTION: cmsis-executorch
