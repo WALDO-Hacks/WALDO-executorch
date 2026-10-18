@@ -26,21 +26,56 @@ MRAM   0x80000000  HE image (512 KB slot)   0x80080000  HP image
 one ATOC. To go back to the single-core build, comment that line out and reflash: the
 HE gets the stub again and the HP listens itself.
 
-The HE's model is the same MicroNet, compiled for the U55-128:
+## Flash and read the console
 
-```sh
-.venv/bin/python model/kws/export_kws.py cmsis-executorch.cbuild-mlops.yml --he   # -> he/kws_pte_he.c
-```
+Same as the single-core build: SW4 on SEUART, `tools/flash.sh` (it prints `two-brain: HE
+image N bytes at 0x80000000`), then SW4 on UART4, reset, console at 115200.
 
-## What the console shows
+Which build is running: the two-brain HP prints `WALDO two-brain: YOLOv8n ... MicroNet KWS
+on the M55-HE's Ethos-U55` and `WALDO: two-brain build, the M55-HE owns the microphones`;
+the single-core build prints a `voice: mic rms ...` stats line instead.
+
+A working boot:
 
 ```
 two-brain: M55-HE at 160 MHz reached "self-test"; keyword self-test on its Ethos-U55: yes (0.98), ...
 KWS_result: PASS
 HE| HE: Ethos-U55 v1.x.x, 128 MACs/cc
+YOLO_result: PASS
 two-brain: HE listening, 2 heartbeats, mic rms 40/38 (0 errors), 10 windows, MFCC ... us, U55 ... us ...
 HE| HE: heard stop
+HEARD: stop
 ```
 
-If the HE stops at a stage, the line names it: `SE services`, `SRAM0`, `NPU`, `model`,
-`self-test`, `mics`. If it never starts, the HP prints `M55-HE silent`.
+## When the HE doesn't work
+
+The HP waits up to 5 s at boot for the HE's self-test. YOLO, the camera and the servos
+work either way; only voice depends on the HE.
+
+| Console says | Meaning | Try |
+|---|---|---|
+| `no word from the M55-HE after 5000 ms` + `KWS_result: FAIL`; later `M55-HE silent (no mailbox)` | the HE image never ran, or never reached SRAM0 | check `~/alif/app-release-exec-macos/build/app-package-map.txt` lists `waldo_he.bin` at 0x80000000; reflash |
+| `reached "SE services"` or `"SRAM0"` and FAILED | the HE couldn't talk to the Secure Enclave | power-cycle, reflash |
+| `reached "NPU"` and FAILED | the U55 driver didn't start | `HE|` log lines say why |
+| `reached "model"` and FAILED | ExecuTorch couldn't load the U55 program (pools in SRAM0 at 0x02380000) | `HE|` log lines; re-export with `--he` |
+| `self-test: wrong word` | the U55 runs but the result is wrong | compare with the single-core `KWS_result` |
+| stuck at `"mics"`, or `mic rms 0/0` | the PDM didn't start on the HE | fall back |
+
+**Fallback:** comment out `- WALDO_TWO_BRAIN` in `board/DevKit-E8/Board-U85.clayer.yml`
+and run `tools/flash.sh` again (a full flash: the ATOC changes). The HP listens itself, as
+on branch `yolo`.
+
+## Re-exporting the HE model
+
+Needs the project's Python venv (`.venv`, see the main README) and
+`cmsis-executorch.cbuild-mlops.yml`, which `cbuild setup` writes (it is not committed):
+
+```sh
+.venv/bin/python model/kws/export_kws.py cmsis-executorch.cbuild-mlops.yml --he   # -> he/kws_pte_he.c
+```
+
+## Harmless build noise
+
+csolution prints `redefinition from 'AC6' into 'GCC'` and a few `update recommended ...
+--update-rte` lines; ignore them. The HE builds as Release (`optimize: size`), the HP as
+Debug.

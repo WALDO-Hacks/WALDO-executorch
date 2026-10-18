@@ -93,8 +93,13 @@ extern "C" int app_main(void) {
   executorch::runtime::runtime_init();
 #ifdef WALDO_HW
   // The turret: keyword spotting and YOLOv8 on the Ethos-U85, each checked at boot.
+#ifdef WALDO_TWO_BRAIN
+  printf("WALDO two-brain: YOLOv8n (%lu B) on the HP's Ethos-U85; MicroNet KWS on the M55-HE's Ethos-U55\n",
+         static_cast<unsigned long>(yolo_pte_size));
+#else
   printf("WALDO: MicroNet KWS (%lu B) and YOLOv8n (%lu B) ExecuTorch programs on the Ethos-U85\n",
          static_cast<unsigned long>(kws_pte_size), static_cast<unsigned long>(yolo_pte_size));
+#endif
 #ifdef WALDO_TWO_BRAIN
   // Two-brain: the M55-HE listens (he/); here we only wait for its self-test.
   brain_hp_selftest(5000);

@@ -159,6 +159,12 @@ Only the float-to-int8 conversions at each model's input and output stay on the 
 
 The J10 header is level-shifted to 3.3 V on the DevKit. The servo signals connect directly.
 
+## Two-brain (branch `two-brain`)
+
+The M55-HE and its Ethos-U55-128 listen all the time; the M55-HP and the Ethos-U85 see and
+steer, and sleep between interrupts. The HE posts heard words to a mailbox in SRAM0. See
+[he/README.md](he/README.md). Not yet run on a board.
+
 ## Build and run
 
 You need CMSIS-Toolbox 2.15, Arm GNU Toolchain 14.3 and Alif SETOOLS (see
@@ -222,8 +228,8 @@ At boot the board tests itself and prints `KWS_result` (a recorded "yes") and `Y
   a photo of people
 
 **Next steps:**
-- Move always-on listening and motion detection to the **M55-HE + Ethos-U55** and put the
-  HP core to sleep in SENTRY.
+- Two-brain: listening on the **M55-HE + Ethos-U55** is built on branch `two-brain` (see
+  above); next, motion detection there too, and the HP powered down in SENTRY.
 - Measure the power difference.
 
 ## Credits and licences

@@ -5,7 +5,8 @@
 #   tools/flash.sh build    build only
 # Two-brain (WALDO_TWO_BRAIN in board/DevKit-E8/Board-U85.clayer.yml): the M55-HE image
 # (he/, the always-on ears) is built too and boots from the HE's MRAM slot; without it the
-# HE gets the usual stub.
+# HE gets the usual stub. Switching between the two needs a full flash (the ATOC changes);
+# `build` only builds and leaves SETOOLS alone.
 # Needs: CMSIS-Toolbox 2.15 + Arm GNU 14.3 (see tools/env.sh.example), Alif SETOOLS.
 set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -27,6 +28,7 @@ if [ $TWO_BRAIN = 1 ]; then
                "cpu_id": "M55_HE", "flags": ["boot"], "mramAddress": "0x80000000"}'
   echo "two-brain: HE image $(wc -c < he/out/waldo-he/DevKit-E8-HE/Release/waldo-he.bin) bytes at 0x80000000"
 else
+  echo "two-brain: off (single-core build, the HE gets its stub)"
   HE_APP='"HE_APP":   {"disabled": false, "binary": "m55_stub_he.bin", "version": "1.0.0", "signed": true,
                "loadAddress": "0x58000000", "cpu_id": "M55_HE", "flags": ["load", "boot"]}'
 fi
