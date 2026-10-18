@@ -3,9 +3,11 @@ project:
   define:
     - ETHOSU55
     - ET_LOG_ENABLED: 0
-    # src/kws.cpp: the HE image's pool sizes (Vela: 121 KiB scratch on the U55-128)
-    - KWS_METHOD_POOL_SIZE: 131072
-    - KWS_TEMP_POOL_SIZE: 196608
+    # src/kws.cpp: the smallest pools the HE uses, those of its WALDO_HE_POOLS_DTCM fallback
+    # (8 KiB method, 124 KiB temp; Vela: 123600 B scratch on the U55-128). Here they sit in
+    # SRAM: the FVP's U55 cannot reach DTCM, so this checks the sizes, not the placement.
+    - KWS_METHOD_POOL_SIZE: 8192
+    - KWS_TEMP_POOL_SIZE: 126976
 
   add-path:
     - ../../src
