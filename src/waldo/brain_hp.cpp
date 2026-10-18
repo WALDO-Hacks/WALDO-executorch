@@ -14,7 +14,7 @@
 namespace {
 
 const brain_mailbox *const m = BRAIN_MAILBOX;
-uint32_t word_tail, log_tail, last_windows, last_mfcc, last_npu, last_heartbeat;
+uint32_t word_tail, wake_tail, log_tail, last_windows, last_mfcc, last_npu, last_heartbeat;
 bool tails_set;
 
 const char *const kStage[] = {"-", "boot", "SE services", "SRAM0", "NPU", "model", "self-test", "mics", "listening"};
@@ -67,6 +67,7 @@ bool brain_hp_selftest(uint32_t timeout_ms)
     if (alive()) drain_log();
     tails_set = true;
     word_tail = m->word_head;   // words from before the HP was listening don't count
+    wake_tail = m->wake_head;
     if (!alive()) {
         printf("two-brain: no word from the M55-HE after %lu ms (mailbox at 0x%08lx)\nKWS_result: FAIL\n",
                (unsigned long)waited, (unsigned long)BRAIN_MAILBOX_ADDR);
@@ -82,7 +83,32 @@ bool brain_hp_selftest(uint32_t timeout_ms)
         printf("two-brain: the HE's SRAM power request returned %lu/%lu\n", (unsigned long)m->sram_ret,
                (unsigned long)m->sram_err);
     printf("KWS_result: %s\n", pass ? "PASS" : "FAIL");
+    printf("two-brain: wake word \"Hey Waldo\" %s\n", m->wake_enabled == 1 ? "enabled (HE self-test passed)" : "not available");
     return pass;
+}
+
+bool brain_hp_wake_enabled(void)
+{
+    refresh();
+    return alive() && m->wake_enabled == 1;
+}
+
+bool brain_hp_wake_poll(uint32_t *score_x1000)
+{
+    refresh();
+    if (!alive()) return false;
+    if (!tails_set) {
+        tails_set = true;
+        word_tail = m->word_head;
+        wake_tail = m->wake_head;
+    }
+    const uint32_t head = m->wake_head;
+    if ((int32_t)(head - wake_tail) < 0) wake_tail = head;   // the HE restarted: nothing old to replay
+    if (head - wake_tail > BRAIN_WORDS) wake_tail = head - BRAIN_WORDS;   // far behind: the newest ones
+    if (wake_tail == head) return false;
+    wake_tail++;
+    *score_x1000 = m->wake_score_x1000;
+    return true;
 }
 
 int brain_hp_word(void)

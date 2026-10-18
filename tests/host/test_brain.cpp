@@ -10,6 +10,7 @@
 #include CMSIS_device_header
 #include "brain_hp.h"
 #include "brain_link.h"
+#include "wake_debounce.h"
 
 struct host_dwt host_dwt_regs;
 struct host_coredebug host_coredebug_regs;
@@ -162,6 +163,69 @@ int main()
     out = capture([](void *p) { *(bool *)p = brain_hp_selftest(100); }, &pass);
     CHECK(!pass && out.find("model") != std::string::npos && out.find("FAILED") != std::string::npos,
           "failure not reported: %s", out.c_str());
+
+    // 11. Wake word events: disabled until the HE says so; one true per event; the score
+    // field holds the latest event's posterior.
+    he_boot();
+    host_box.stage = BRAIN_LISTENING;
+    uint32_t score = 0;
+    CHECK(!brain_hp_wake_enabled(), "wake enabled before the HE says so");
+    CHECK(!brain_hp_wake_poll(&score), "wake event from nothing");
+    host_box.wake_enabled = 1;
+    CHECK(brain_hp_wake_enabled(), "wake enabled flag not seen");
+    brain_post_wake(&host_box, 912);
+    CHECK(brain_hp_wake_poll(&score) && score == 912, "wake event lost (score %u)", (unsigned)score);
+    CHECK(!brain_hp_wake_poll(&score), "wake event repeated");
+    brain_post_wake(&host_box, 955);
+    brain_post_wake(&host_box, 970);   // two before the HP looks: both are delivered, latest score
+    CHECK(brain_hp_wake_poll(&score) && brain_hp_wake_poll(&score) && score == 970, "two queued wake events");
+    CHECK(!brain_hp_wake_poll(&score), "extra wake event");
+    // the HP falls 12 events behind: it gets the newest 8
+    for (int i = 0; i < 12; i++) brain_post_wake(&host_box, 900 + i);
+    int n = 0;
+    while (brain_hp_wake_poll(&score)) n++;
+    CHECK(n == BRAIN_WORDS, "after overflow got %d wake events", n);
+    // the counter wraps around 2^32 between two polls: four events, none lost
+    host_box.wake_head = 0xFFFFFFFEu;
+    brain_hp_wake_poll(&score);
+    while (brain_hp_wake_poll(&score)) {}   // caught up (the jump is treated as a stale gap)
+    for (int i = 0; i < 4; i++) brain_post_wake(&host_box, 800 + i);
+    n = 0;
+    while (brain_hp_wake_poll(&score)) n++;
+    CHECK(n == 4 && score == 803 && host_box.wake_head == 2u, "wrap: %d events, score %u", n, (unsigned)score);
+    // the HE restarts: nothing old is replayed, the next event is seen, enabled drops until re-verified
+    he_boot();
+    host_box.stage = BRAIN_LISTENING;
+    CHECK(!brain_hp_wake_enabled() && !brain_hp_wake_poll(&score), "wake state survived an HE restart");
+    host_box.wake_enabled = 1;
+    brain_post_wake(&host_box, 777);
+    CHECK(brain_hp_wake_poll(&score) && score == 777, "first wake event after an HE restart lost");
+    // the self-test line says whether wake is available (the host's cycle counter doesn't run: self-test done)
+    host_box.selftest = 1;
+    out = capture([](void *p) { *(bool *)p = brain_hp_selftest(100); }, &pass);
+    CHECK(out.find("wake word \"Hey Waldo\" enabled (HE self-test passed)") != std::string::npos, "wake status line: %s", out.c_str());
+    host_box.wake_enabled = 0;
+    out = capture([](void *p) { *(bool *)p = brain_hp_selftest(100); }, &pass);
+    CHECK(out.find("wake word \"Hey Waldo\" not available") != std::string::npos, "wake status line: %s", out.c_str());
+
+    // 12. The wake debounce against the known answers of model/wake/test_wake.py
+    // (hits at windows 1, 3, 4, 13, 14).
+    {
+        const bool hit[16] = {0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0};
+        const struct { int n, k, ref; int want[5]; } cases[] = {
+            {3, 2, 10, {3, 14, -1}}, {2, 2, 2, {4, 14, -1}}, {1, 1, 0, {1, 3, 4, 13, 14}}};
+        for (const auto &c : cases) {
+            wake_debounce d = {};
+            int got[16], ng = 0;
+            for (int j = 0; j < 16; j++)
+                if (wake_debounce_step(&d, hit[j], c.n, c.k, c.ref)) got[ng++] = j;
+            int nw = 0;
+            while (nw < 5 && c.want[nw] >= 0) nw++;
+            bool same = ng == nw;
+            for (int i = 0; same && i < ng; i++) same = got[i] == c.want[i];
+            CHECK(same, "debounce n=%d k=%d ref=%d: %d events, first %d", c.n, c.k, c.ref, ng, ng ? got[0] : -1);
+        }
+    }
 
     CHECK(flushes > 0, "the HE log never flushed the mailbox");
     printf("two-brain mailbox: %s\n", failures ? "FAILED" : "all checks passed");

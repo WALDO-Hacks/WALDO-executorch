@@ -76,6 +76,8 @@ project:
         - file: ./ethos_setup.c
         - file: ./ethosu_cb_dcache.c
         - file: ./kws_pte_he.c
+        - file: ./wake.cpp
+        - file: ./wake_pte_he.c
     - group: Shared
       files:
         - file: ../src/kws.cpp

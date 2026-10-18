@@ -54,6 +54,12 @@ struct brain_mailbox {
     volatile uint32_t sram_ret, sram_err;   // the HE's SRAM power request to the SE
     volatile uint32_t log_head;       // bytes written to log so far
     volatile char log[BRAIN_LOG_SIZE];
+    // Wake word "Hey Waldo" (model/wake/, he/wake.cpp). Appended after the fields above; the
+    // HE writes, the HP reads. Zero until the HE has loaded the wake model and its boot
+    // self-test passed.
+    volatile uint32_t wake_enabled;   // 1: wake model loaded AND self-test passed
+    volatile uint32_t wake_head;      // wake events so far; written after wake_score_x1000
+    volatile uint32_t wake_score_x1000;   // posterior (x1000) of the latest event
 };
 
 #ifndef BRAIN_MAILBOX   // host tests point it at an ordinary buffer
@@ -68,6 +74,15 @@ static inline void brain_post_word(struct brain_mailbox *m, int32_t word)
     m->word[h % BRAIN_WORDS] = word;
     __sync_synchronize();   /* a DMB on the M55 */
     m->word_head = h + 1;
+}
+
+// HE side: publish one wake event. The score first, then the head that makes it visible;
+// the caller cleans the mailbox out of its data cache afterwards.
+static inline void brain_post_wake(struct brain_mailbox *m, uint32_t score_x1000)
+{
+    m->wake_score_x1000 = score_x1000;
+    __sync_synchronize();   /* a DMB on the M55 */
+    m->wake_head = m->wake_head + 1;
 }
 
 #ifdef __cplusplus

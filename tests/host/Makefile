@@ -23,10 +23,10 @@ test_view: test_view.cpp display_host.c $(W)/view.cpp $(W)/jpeg_frame.c $(W)/tjp
 	rm -f display_host.o jpeg_frame.o tjpgd.o
 
 # Two-brain mailbox: the HE's writer (he/he_log.c, brain_link.h) against the HP's reader.
-test_brain: test_brain.cpp $(W)/brain_hp.cpp ../../he/he_log.c
+test_brain: test_brain.cpp $(W)/brain_hp.cpp ../../he/he_log.c ../../he/wake_debounce.h
 	$(CC) -O1 -Istubs/brain -Istubs -I../../src -I../../he -DBRAIN_MAILBOX='(&host_box)' \
 	  -I$(W) -include stubs/brain_host_box_c.h -c ../../he/he_log.c -o he_log.o
-	$(CXX) $(CXXFLAGS) -Istubs/brain -Istubs -I../../src -DBRAIN_MAILBOX='(&host_box)' \
+	$(CXX) $(CXXFLAGS) -Istubs/brain -Istubs -I../../src -I../../he -DBRAIN_MAILBOX='(&host_box)' \
 	  -include stubs/brain_host_box.h -o $@ test_brain.cpp $(W)/brain_hp.cpp he_log.o
 	rm -f he_log.o
 
