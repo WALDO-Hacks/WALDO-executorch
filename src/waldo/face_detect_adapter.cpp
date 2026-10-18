@@ -14,9 +14,13 @@ int detect(const struct cam_frame *f, struct det_box *out, int max)
     int n = yolo_detect_rgb(f->rgb, f->rgb_w, f->rgb_h, kYoloMinScore, b, max < 8 ? max : 8);
     // Colour frames are twice the grayscale frame's size.
     const float kx = (float)f->width / f->rgb_w, ky = (float)f->height / f->rgb_h;
-    for (int i = 0; i < n; i++)
-        out[i] = {(int)(b[i].x * kx), (int)(b[i].y * ky), (int)(b[i].w * kx), (int)(b[i].h * ky), b[i].score, b[i].cls};
-    return n < 0 ? 0 : n;
+    // People only: other classes never reach the tracker.
+    int m = 0;
+    for (int i = 0; i < n; i++) {
+        if (b[i].cls != 0) continue;
+        out[m++] = {(int)(b[i].x * kx), (int)(b[i].y * ky), (int)(b[i].w * kx), (int)(b[i].h * ky), b[i].score, b[i].cls};
+    }
+    return m;
 }
 
 void detect_stage_us(uint32_t *pre, uint32_t *npu, uint32_t *post) { yolo_stage_us(pre, npu, post); }

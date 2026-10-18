@@ -96,6 +96,12 @@ constexpr float kLatchGateBaseDeg = 14; // gate around the predicted place, plus
 constexpr float kLatchGateDriftDegS = 2;    // plus this much per second unseen (a still person: little; a moving one widens it by its speed)
 constexpr float kLatchMaxSpeedDegS = 80; // the speed estimate widens the gate by at most this per second
 constexpr float kLatchGateMaxDeg = 35;  // never wider than this: about the field of view
+// A detector box must look like a person before it can be followed: this keeps clutter, ghost
+// blobs and the part-boxes of one person (torso, legs) from being picked or taking turns.
+constexpr float kMinPersonScore = 0.5f;   // the detector's own floor is 0.35 (face_detect_adapter.cpp)
+constexpr float kMaxAspectWH = 2.0f;      // a person is not much wider than tall
+constexpr float kMinAreaFrac = 0.004f;    // of the image
+constexpr float kNestedFrac = 0.8f;       // a box this much inside a bigger one is part of the same person
 static bool latched;
 static uint32_t last_update_ms, miss_ms;
 
@@ -123,10 +129,28 @@ bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
     const uint32_t since_update = last_update_ms && (int32_t)(now - last_update_ms) > 0
                                       ? (now - last_update_ms < 500 ? now - last_update_ms : 500) : 0;
     last_update_ms = now;
+    // Which boxes may be followed at all (people-quality, not a fragment of a bigger box).
+    bool ok[16];
+    const int nn = n < 16 ? n : 16;
+    for (int i = 0; i < nn; i++) {
+        ok[i] = is_target_class(b[i].cls) &&
+                (b[i].cls == DET_MOTION || (b[i].score >= kMinPersonScore && b[i].w > 0 && b[i].h > 0 &&
+                                            b[i].w <= kMaxAspectWH * b[i].h &&
+                                            (float)b[i].w * b[i].h >= kMinAreaFrac * img_w * img_h));
+    }
+    for (int i = 0; i < nn; i++) {
+        if (!ok[i] || b[i].cls == DET_MOTION) continue;
+        for (int j = 0; j < nn; j++) {
+            if (j == i || !ok[j] || b[j].cls == DET_MOTION || b[j].w * b[j].h <= b[i].w * b[i].h) continue;
+            const int ix = fmaxf(0, fminf(b[i].x + b[i].w, b[j].x + b[j].w) - fmaxf(b[i].x, b[j].x));
+            const int iy = fmaxf(0, fminf(b[i].y + b[i].h, b[j].y + b[j].h) - fmaxf(b[i].y, b[j].y));
+            if (ix * iy >= kNestedFrac * b[i].w * b[i].h) { ok[i] = false; break; }
+        }
+    }
     int pick = -1;
     float best = -1;
     for (int i = 0; i < n; i++) {
-        if (!is_target_class(b[i].cls)) continue;
+        if (i >= nn || !ok[i]) continue;
         float cx = b[i].x + b[i].w / 2.0f, cy = b[i].y + b[i].h / 2.0f;
         float score = (float)b[i].w * b[i].h;
         if (latched) {
@@ -176,7 +200,7 @@ bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
         int alt = -1;
         float alt_d = 0.3f * (img_w > img_h ? img_w : img_h);   // only something near the middle
         for (int i = 0; i < n; i++) {
-            if (b[i].cls == DET_MOTION) continue;
+            if (b[i].cls == DET_MOTION || i >= nn || !ok[i]) continue;
             const float d = hypotf(b[i].x + b[i].w / 2.0f - img_w / 2.0f, b[i].y + b[i].h / 2.0f - img_h / 2.0f);
             if (d < alt_d) {
                 alt_d = d;
@@ -196,6 +220,7 @@ bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
         int alt = -1;
         float alt_d = 1e9f;
         for (int i = 0; i < n; i++) {
+            if (i >= nn || !ok[i]) continue;
             float dx = b[i].x + b[i].w / 2.0f - st.cx, dy = b[i].y + b[i].h / 2.0f - st.cy;
             float margin = st.w / 2;
             bool ok = switch_dir == TRACK_SWITCH_LEFT ? dx < -margin

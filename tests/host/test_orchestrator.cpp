@@ -101,9 +101,9 @@ int main()
     step(8);
     CHECK(orch_state() == ORCH_TRACK);
 
-    // Two faces: "left" switches to the left one and the turret turns toward it.
+    // Two people: "left" switches to the left one and the turret turns toward it (people only: no objects are followed).
     script[0] = {85, 50, 16, 16, 0.9f, 0};    // the person being followed, near centre
-    script[1] = {20, 50, 16, 16, 0.9f, 14};   // a cup to its left
+    script[1] = {20, 50, 16, 16, 0.9f, 0};    // a second person to its left
     script_n = 2;
     step(4);
     float before = motion_target(AXIS_PAN);
@@ -111,15 +111,14 @@ int main()
     step(1);
     CHECK(motion_target(AXIS_PAN) > before + 2);   // +pan turns left
 
-    // It now follows the cup, even though a person is in view: the person alone moving
-    // right doesn't pull it back.
+    // It now follows the left person: the other one moving right doesn't pull it back.
     script[0] = {130, 50, 16, 16, 0.9f, 0};
-    script[1] = {60, 50, 16, 16, 0.9f, 14};   // the cup, now left of centre
+    script[1] = {28, 50, 16, 16, 0.9f, 0};    // the left person, nearly where it was
     float pan_cup = motion_target(AXIS_PAN);
     step(3);
-    // Still the cup, and not pulled right toward the person (17 deg right). The scripted
+    // Still the left person, and not pulled right toward the person (17 deg right). The scripted
     // boxes don't move with the turret, so a few degrees of drift are the script's.
-    CHECK(tracker_target_class() == 14 && motion_target(AXIS_PAN) > pan_cup - 6);
+    CHECK(tracker_latched() && motion_target(AXIS_PAN) > pan_cup - 6);
 
     // "no" -> back to people: it turns right toward the person.
     orch_word("no", now);
@@ -188,31 +187,27 @@ int main()
     orch_word("on", now);
     CHECK(tracker_target_class() == 0);
 
-    // ---- "yes": lock onto what is in the middle of the picture ----
-    // A cup in the middle, a person off to the side: "yes" follows cups, not the person.
+    // ---- "yes": lock onto the person in the middle of the picture (people only) ----
+    // A cup in the middle, a person off to the side, a person in the middle: "yes" takes the middle person.
     orch_word("off", now);
     orch_word("on", now);
     script[0] = {72, 52, 16, 16, 0.9f, 14};    // a cup, centre (frame 160x120)
     script[1] = {130, 40, 20, 40, 0.9f, 0};    // a person, right
-    script_n = 2;
+    script[2] = {70, 40, 20, 40, 0.9f, 0};     // a person, centre
+    script_n = 3;
     orch_word("yes", now);
     CHECK(orch_state() == ORCH_TRACK);
     step(3);
-    CHECK(orch_state() == ORCH_TRACK && tracker_target_class() == 14);
-    // Only the person now: not followed (cups were chosen), the turret does not turn to it.
-    script_n = 1;
-    script[0] = script[1];
-    const float p_yes = motion_target(AXIS_PAN);
-    step(5);
-    CHECK(tracker_target_class() == 14 && fabsf(motion_target(AXIS_PAN) - p_yes) < 0.01f);
-    // "yes" with nothing in the middle (the person is far right): no change, and the
+    CHECK(orch_state() == ORCH_TRACK && tracker_target_class() == 0 && tracker_latched());
+    // "yes" with nobody in the middle (the person is far right): no change, and the
     // pending lock is dropped after 1.5 s instead of firing later.
+    orch_word("off", now);
+    orch_word("on", now);
+    script[0] = script[1];
+    script_n = 1;
     orch_word("yes", now);
     step(20);
-    CHECK(tracker_target_class() == 14);
-    script[0] = {72, 52, 20, 40, 0.9f, 0};     // the person walks into the middle later
-    step(3);
-    CHECK(tracker_target_class() == 14);       // the old "yes" did not fire
+    CHECK(!tracker_latched() || tracker_target_index() == 0);
     // "yes" while PARKED: ignored.
     orch_word("off", now);
     orch_word("yes", now);

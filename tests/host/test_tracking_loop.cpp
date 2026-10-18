@@ -152,6 +152,28 @@ int main()
         { const det_box ab[2] = {B, A}; CHECK(frame(ab, 2) && tracker_target_index() == 0); }
     }
 
+    // 6. box quality: weak, flat or tiny boxes are never followed, and a part-box of the followed person
+    //    (torso inside the full-body box) neither takes over nor moves the aim.
+    {
+        const int W = 160, H = 120;
+        uint32_t now = 1000;
+        auto frame = [&](const det_box *b, int n) { now += 100; const bool r = tracker_update(b, n, W, H, now);
+                                                    tracker_tick(now, true); motion_tick(0.1f); return r; };
+        motion_init(pwm, -1, -1); motion_set(AXIS_PAN, 0); motion_set(AXIS_TILT, 0);
+        for (int i = 0; i < 100; i++) motion_tick(0.02f);
+        tracker_reset_target();
+        const det_box weak = {72, 40, 20, 40, 0.40f, 0}, flat = {40, 70, 60, 20, 0.9f, 0}, tiny = {10, 10, 3, 3, 0.9f, 0};
+        const det_box ghosts[3] = {weak, flat, tiny};
+        for (int i = 0; i < 10; i++) CHECK(!frame(ghosts, 3));
+        CHECK(!tracker_latched());
+        const det_box full = {60, 30, 30, 70, 0.8f, 0}, torso = {64, 36, 22, 24, 0.9f, 0};
+        const det_box both[2] = {torso, full};
+        CHECK(frame(both, 2) && tracker_target_index() == 1 && tracker_latched());
+        for (int i = 0; i < 20; i++) CHECK(frame(both, 2) && tracker_target_index() == 1);
+        const det_box only_torso[1] = {torso};   // the full box drops out for a frame: the torso is still that person
+        CHECK(frame(only_torso, 1) && tracker_latched());
+    }
+
     if (!fails) printf("tracking loop: all checks passed\n");
     return fails ? 1 : 0;
 }
