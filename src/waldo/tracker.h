@@ -22,8 +22,11 @@ int tracker_target_index(void);
 // Switch to another target at the next update: the nearest box in that direction in the
 // image (the turret's left is the image's left), of any class: the tracker then follows
 // that class. ANY = the nearest other box.
-enum { TRACK_SWITCH_ANY = 1, TRACK_SWITCH_LEFT, TRACK_SWITCH_RIGHT, TRACK_SWITCH_UP, TRACK_SWITCH_DOWN };
-void tracker_switch(int dir);
+// CENTER = whatever is nearest the middle of the picture, with or without a current target
+// ("yes": lock on). A switch that finds nothing within 1.5 s is dropped.
+enum { TRACK_SWITCH_ANY = 1, TRACK_SWITCH_LEFT, TRACK_SWITCH_RIGHT, TRACK_SWITCH_UP, TRACK_SWITCH_DOWN,
+       TRACK_SWITCH_CENTER };
+void tracker_switch(int dir, uint32_t now_ms);
 // Drop the current target and go back to following people.
 void tracker_reset_target(void);
 // Drop the current target (lost, or the turret moves on) but keep following its class.

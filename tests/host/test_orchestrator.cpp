@@ -186,6 +186,38 @@ int main()
     orch_word("on", now);
     CHECK(tracker_target_class() == 0);
 
+    // ---- "yes": lock onto what is in the middle of the picture ----
+    // A cup in the middle, a person off to the side: "yes" follows cups, not the person.
+    orch_word("off", now);
+    orch_word("on", now);
+    script[0] = {72, 52, 16, 16, 0.9f, 14};    // a cup, centre (frame 160x120)
+    script[1] = {130, 40, 20, 40, 0.9f, 0};    // a person, right
+    script_n = 2;
+    orch_word("yes", now);
+    CHECK(orch_state() == ORCH_TRACK);
+    step(3);
+    CHECK(orch_state() == ORCH_TRACK && tracker_target_class() == 14);
+    // Only the person now: not followed (cups were chosen), the turret does not turn to it.
+    script_n = 1;
+    script[0] = script[1];
+    const float p_yes = motion_target(AXIS_PAN);
+    step(5);
+    CHECK(tracker_target_class() == 14 && fabsf(motion_target(AXIS_PAN) - p_yes) < 0.01f);
+    // "yes" with nothing in the middle (the person is far right): no change, and the
+    // pending lock is dropped after 1.5 s instead of firing later.
+    orch_word("yes", now);
+    step(20);
+    CHECK(tracker_target_class() == 14);
+    script[0] = {72, 52, 20, 40, 0.9f, 0};     // the person walks into the middle later
+    step(3);
+    CHECK(tracker_target_class() == 14);       // the old "yes" did not fire
+    // "yes" while PARKED: ignored.
+    orch_word("off", now);
+    orch_word("yes", now);
+    CHECK(orch_state() == ORCH_PARKED);
+    orch_word("on", now);
+    script_n = 0;
+
     // ---- wake word (from the team's integration branch): commands act only while listening;
     //      "stop" and "off" always work ----
     CHECK(orch_listening(now));                 // not required (the default): always listening

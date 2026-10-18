@@ -356,12 +356,21 @@ void orch_word(const char *w, uint32_t now)
         if (state != ORCH_PARKED) enter(ORCH_HOLD, now);
     } else if (!strcmp(w, "no")) {
         tracker_reset_target();   // drop what it follows, back to people
+    } else if (!strcmp(w, "yes")) {
+        // Lock onto what is in the middle of the picture and follow that kind of thing:
+        // point the turret at a cup ("left"/"right"), say "yes", and it tracks cups.
+        if (state == ORCH_PARKED) return;
+        tracker_switch(TRACK_SWITCH_CENTER, now);
+        if (state != ORCH_TRACK) {
+            enter(ORCH_TRACK, now);   // the detector runs on every frame there
+            last_target_ms = now;
+        }
     } else {
         int dir = !strcmp(w, "left") ? TRACK_SWITCH_LEFT : !strcmp(w, "right") ? TRACK_SWITCH_RIGHT
                 : !strcmp(w, "up") ? TRACK_SWITCH_UP : !strcmp(w, "down") ? TRACK_SWITCH_DOWN : 0;
         if (!dir || state == ORCH_PARKED) return;
         if (state == ORCH_TRACK) {
-            tracker_switch(dir);
+            tracker_switch(dir, now);
         } else {
             // +pan turns left, +tilt points up
             if (dir == TRACK_SWITCH_LEFT) motion_nudge(AXIS_PAN, kNudgeDeg);

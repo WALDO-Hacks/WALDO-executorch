@@ -63,6 +63,8 @@ static bool searched;
 
 static int target_index = -1;
 static int switch_dir;   // pending tracker_switch()
+static uint32_t switch_ms;
+constexpr uint32_t kSwitchMs = 1500;   // a switch that finds nothing in this long is dropped
 static int target_cls = TRACK_PEOPLE;
 
 static bool is_target_class(int cls)
@@ -111,8 +113,34 @@ bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
         }
     }
 
+    // A pending switch that found nothing to switch to in time is dropped, not kept for later.
+    if (switch_dir && now - switch_ms > kSwitchMs) {
+        printf("track: nothing to switch to\n");
+        switch_dir = 0;
+    }
+    // "yes": lock onto whatever is nearest the middle of the picture (where the beam points),
+    // of any class, and follow that kind of thing from now on. Works without a current target.
+    if (switch_dir == TRACK_SWITCH_CENTER && n > 0) {
+        int alt = -1;
+        float alt_d = 0.3f * (img_w > img_h ? img_w : img_h);   // only something near the middle
+        for (int i = 0; i < n; i++) {
+            if (b[i].cls == DET_MOTION) continue;
+            const float d = hypotf(b[i].x + b[i].w / 2.0f - img_w / 2.0f, b[i].y + b[i].h / 2.0f - img_h / 2.0f);
+            if (d < alt_d) {
+                alt_d = d;
+                alt = i;
+            }
+        }
+        if (alt >= 0) {
+            pick = alt;
+            target_cls = b[alt].cls;
+            kf_on = false;
+            printf("track: locked onto a %s\n", detect_class_name(target_cls));
+            switch_dir = 0;
+        }
+    }
     // A requested switch: the nearest other box in that direction, of any class.
-    if (switch_dir && st.has_target && n > 0) {
+    if (switch_dir && switch_dir != TRACK_SWITCH_CENTER && st.has_target && n > 0) {
         int alt = -1;
         float alt_d = 1e9f;
         for (int i = 0; i < n; i++) {
@@ -225,7 +253,11 @@ void tracker_print(void)
 
 int tracker_target_index(void) { return target_index; }
 
-void tracker_switch(int dir) { switch_dir = dir; }
+void tracker_switch(int dir, uint32_t now_ms)
+{
+    switch_dir = dir;
+    switch_ms = now_ms;
+}
 
 void tracker_reset_target(void)
 {

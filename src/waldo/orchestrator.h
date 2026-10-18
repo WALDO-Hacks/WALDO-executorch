@@ -13,7 +13,8 @@
 //
 // Voice: on/go wake or resume, stop holds, off parks; left/right/up/down nudge the turret,
 // or while tracking switch to the nearest thing in that direction (a person or an object,
-// which it then follows); no drops the target and goes back to people.
+// which it then follows); yes locks onto whatever is in the middle of the picture and
+// follows that kind of thing; no drops the target and goes back to people.
 #pragma once
 #include <stdint.h>
 
