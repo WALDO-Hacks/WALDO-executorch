@@ -25,6 +25,11 @@ project:
     - KWS_POOL_SECTION: \".bss.he_pool\"
     - KWS_METHOD_POOL_SIZE: 131072
     - KWS_TEMP_POOL_SIZE: 196608
+    # Fallback if the HE stops at "model"/"self-test" (he/README.md): the pools in the HE's
+    # DTCM instead, as in Alif's HE examples. Uncomment BOTH lines: MAX_KERNEL_NUM shrinks
+    # ExecuTorch's kernel table (2000 slots, 24 KB; this image registers 9) to make room.
+    # - WALDO_HE_POOLS_DTCM
+    # - MAX_KERNEL_NUM: 32
 
   add-path:
     - ../src

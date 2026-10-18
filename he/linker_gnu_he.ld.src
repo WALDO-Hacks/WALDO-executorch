@@ -33,8 +33,11 @@
    (src/waldo/brain_link.h), which is never zeroed here: the HE powers SRAM0 itself in
    main(), after startup. Code still runs from ITCM, data from DTCM. */
 #define __STACK_SIZE             0x00008000
-#define __HEAP_SIZE              0x00008000
-#define __APP_HEAP_SIZE          0x00004000
+/* WALDO_HE_POOLS_DTCM (he/waldo-he.cproject.yml) moves the ExecuTorch pools into .bss here
+   in DTCM; src/kws.cpp then defines __waldo_he_pools_dtcm, and the heap (ExecuTorch uses
+   a few KB of it) and the unused app heap shrink to make room. */
+#define __HEAP_SIZE              (DEFINED(__waldo_he_pools_dtcm) ? 0x00004000 : 0x00008000)
+#define __APP_HEAP_SIZE          (DEFINED(__waldo_he_pools_dtcm) ? 0x00000000 : 0x00004000)
 #define __ROM_BASE               APP_MRAM_HE_BASE
 #define __ROM_SIZE               APP_MRAM_HE_SIZE
 
@@ -277,6 +280,7 @@ SECTIONS
 
   /* Check if data + heap + stack exceeds RAM limit */
   ASSERT(__StackLimit >= __HeapLimit, "region RAM overflowed with stack")
+  ASSERT(!DEFINED(__waldo_he_pools_dtcm) || SIZEOF(.bss.he_pool) == 0, "WALDO_HE_POOLS_DTCM: pools still in SRAM0")
 
   /* Picolib crt on clang compiler requires below definitions for data and bss sections copy.
    * We have multiple sections at diff memory locations to copy e.g. itcm, dtcm etc.

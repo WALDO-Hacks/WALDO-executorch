@@ -35,7 +35,22 @@ using executorch::runtime::MemoryAllocator;
 namespace {
 
 // The two-brain HE image (he/) sets its own section and sizes: the U55-128 needs 121 KiB.
-#if defined(KWS_POOL_SECTION)
+#if defined(WALDO_HE_POOLS_DTCM)
+// he/ fallback: both pools in the HE's DTCM (plain .bss), as in Alif's own HE examples;
+// the U55 reaches it at the global alias (he/ethos_setup.c). Sized to kws_pte_he.c:
+// planned memory 2464 B + method metadata ~1 KB (3472 B measured on a 64-bit host),
+// Vela scratch 123600 B. The absolute symbol tells he/linker_gnu_he.ld.src to shrink the
+// heaps to make room.
+#define KWS_POOL_ATTRIBUTES
+#undef KWS_METHOD_POOL_SIZE
+#undef KWS_TEMP_POOL_SIZE
+#define KWS_METHOD_POOL_SIZE (8 * 1024)
+#define KWS_TEMP_POOL_SIZE (124 * 1024)
+#if !defined(MAX_KERNEL_NUM)
+#error "WALDO_HE_POOLS_DTCM needs MAX_KERNEL_NUM too (he/waldo-he.cproject.yml): DTCM is full otherwise"
+#endif
+__asm__(".global __waldo_he_pools_dtcm\n\t.set __waldo_he_pools_dtcm, 1");
+#elif defined(KWS_POOL_SECTION)
 #define KWS_POOL_ATTRIBUTES __attribute__((section(KWS_POOL_SECTION)))
 #elif defined(APP_POOL_SECTION)
 #define KWS_POOL_ATTRIBUTES __attribute__((section(APP_POOL_SECTION)))
@@ -60,6 +75,9 @@ constexpr int kWords = 10;               // labels before _silence_ / _unknown_
 std::unique_ptr<EmbeddedModule> g_module;
 alignas(16) float g_input[KWS_FRAMES * KWS_COEFFS];
 uint32_t g_last_us;
+#if defined(WALDO_HE)
+MemoryAllocator *g_method_alloc;   // for the one-off usage line after the first forward
+#endif
 
 inline uint32_t cyc_to_us(uint32_t c) { return c / (SystemCoreClock / 1000000u); }
 
@@ -70,10 +88,17 @@ bool kws_init()
     // Cycle counter for the stage timing.
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+    auto method_alloc = std::make_unique<MemoryAllocator>(kMethodPool, g_method_pool);
+#if defined(WALDO_HE)
+    g_method_alloc = method_alloc.get();
+#endif
     g_module = std::make_unique<EmbeddedModule>(
         kws_pte, kws_pte_size, std::make_unique<BufferDataLoader>(kws_pte, kws_pte_size),
-        std::make_unique<MemoryAllocator>(kMethodPool, g_method_pool),
-        std::make_unique<MemoryAllocator>(kTempPool, g_temp_pool));
+        std::move(method_alloc), std::make_unique<MemoryAllocator>(kTempPool, g_temp_pool));
+#if defined(WALDO_HE)
+    printf("HE: KWS pools at %p (method %u B) and %p (temp %u B)\n", (void *)g_method_pool,
+           (unsigned)kMethodPool, (void *)g_temp_pool, (unsigned)kTempPool);
+#endif
     kws_mfcc_init();
     return g_module != nullptr;
 }
@@ -93,6 +118,12 @@ int kws_classify(const float *mfcc, float *probs)
     const uint32_t t0 = DWT->CYCCNT;
     auto outputs = g_module->forward(input);
     g_last_us = cyc_to_us(DWT->CYCCNT - t0);
+#if defined(WALDO_HE)
+    if (g_method_alloc) {
+        printf("HE: method pool %u of %u B used\n", (unsigned)g_method_alloc->used_size(), (unsigned)kMethodPool);
+        g_method_alloc = nullptr;
+    }
+#endif
     if (!outputs.ok() || outputs->empty() || !outputs->front().isTensor()) {
         printf("kws: forward failed (err=%u)\n", outputs.ok() ? 0u : (unsigned)outputs.error());
         return -1;

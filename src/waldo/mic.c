@@ -37,7 +37,11 @@ static const uint32_t ch_fir[18] = {
 static int16_t block[2][BLOCK_FRAMES * 2];
 static volatile int filling;
 
+#if defined(WALDO_HE_POOLS_DTCM)
+#define RING_SIZE 8192u    // ~0.5 s: the HE reads every 16 ms block; DTCM holds its NPU pools too
+#else
 #define RING_SIZE 16384u   // ~1 s of mono, power of two
+#endif
 static int16_t ring[RING_SIZE];
 static volatile uint32_t ring_head, ring_tail;
 

@@ -57,9 +57,17 @@ work either way; only voice depends on the HE.
 | `no word from the M55-HE after 5000 ms` + `KWS_result: FAIL`; later `M55-HE silent (no mailbox)` | the HE image never ran, or never reached SRAM0 | check `~/alif/app-release-exec-macos/build/app-package-map.txt` lists `waldo_he.bin` at 0x80000000; reflash |
 | `reached "SE services"` or `"SRAM0"` and FAILED | the HE couldn't talk to the Secure Enclave | power-cycle, reflash |
 | `reached "NPU"` and FAILED | the U55 driver didn't start | `HE|` log lines say why |
-| `reached "model"` and FAILED | ExecuTorch couldn't load the U55 program (pools in SRAM0 at 0x02380000) | `HE|` log lines; re-export with `--he` |
+| `reached "model"` and FAILED | ExecuTorch couldn't load the U55 program (pools in SRAM0 at 0x02380000) | `HE|` log lines; `WALDO_HE_POOLS_DTCM` (below); re-export with `--he` |
 | `self-test: wrong word` | the U55 runs but the result is wrong | compare with the single-core `KWS_result` |
 | stuck at `"mics"`, or `mic rms 0/0` | the PDM didn't start on the HE | fall back |
+
+**If the HE stops at `"model"` or `"self-test"`:** try the pools in the HE's DTCM instead
+of SRAM0 (Alif's own HE examples keep the NPU arena there). Uncomment `WALDO_HE_POOLS_DTCM`
+and `MAX_KERNEL_NUM` in `he/waldo-he.cproject.yml` and run `tools/flash.sh` again. The HE
+log then says `KWS pools at 0x2000....` and `method pool N of 8192 B used`. It uses the
+same `kws_pte_he.c`: Vela's command stream addresses the scratch through a base register,
+so no re-export is needed. DTCM then holds 124 KiB of temp pool (Vela scratch: 123600 B),
+an 8 KiB method pool, a 0.5 s mic ring and a 16 KiB heap, with 16 KiB to spare.
 
 **Fallback:** comment out `- WALDO_TWO_BRAIN` in `board/DevKit-E8/Board-U85.clayer.yml`
 and run `tools/flash.sh` again (a full flash: the ATOC changes). The HP listens itself, as
