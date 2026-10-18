@@ -32,7 +32,7 @@ layer:
     - WALDO_HW   # turret hardware (servos on J10, camera link) is on this board
     # - WALDO_NPU_SRAM0_ONLY   # if YOLO fails on the board: NPU pools all in SRAM0, LCD frame in SRAM1
     - WALDO_TWO_BRAIN   # the M55-HE image (he/) listens; comment out for the single-core build
-    - WALDO_CAM_ROTATE: 90   # the camera head is mounted on its side (tools/orientation_check.py)
+    - WALDO_CAM_ROTATE: 270   # the camera head is mounted on its side (tools/orientation_check.py)
     # The runner's memory pools (src/app_main.cpp) do not fit the 1 MB DTCM
     # that the Alif linker scripts use for .bss. Place them in the bulk SRAM
     # at 0x02000000 (NPU-accessible; SRAM0+SRAM1 combined, 8 MB, with the AC6

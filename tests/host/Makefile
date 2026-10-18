@@ -2,12 +2,17 @@
 W := ../../src/waldo
 CXXFLAGS := -std=c++17 -O1 -Wall -I$(W)
 
-test: test_orchestrator test_view test_brain
+test: test_orchestrator test_runner test_view test_brain
 	./test_orchestrator
+	./test_runner
 	./test_brain
 	./test_view data/room_rot90.jpg 90 2 lcd_room.ppm 0 24 27 38 70 60 20 20   # open lcd_room.ppm to look
 
 test_orchestrator: test_orchestrator.cpp $(W)/orchestrator.cpp $(W)/tracker.cpp $(W)/motion.cpp
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+# A person running past: lag, a pillar, and a sprint out of view.
+test_runner: test_runner.cpp $(W)/orchestrator.cpp $(W)/tracker.cpp $(W)/motion.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
 # The LCD: the firmware's JPEG decode, rotation, view.cpp and the board's display.c.
@@ -27,5 +32,5 @@ test_brain: test_brain.cpp $(W)/brain_hp.cpp ../../he/he_log.c
 	rm -f he_log.o
 
 clean:
-	rm -f test_orchestrator test_view test_brain lcd_room.ppm
+	rm -f test_orchestrator test_runner test_view test_brain lcd_room.ppm
 .PHONY: test clean

@@ -10,8 +10,9 @@
 
 namespace {
 
-constexpr uint32_t kLostToSentryMs = 5000;   // no target this long while tracking -> sentry
-constexpr int kSentryDetectEvery = 4;        // frames
+constexpr uint32_t kLostToSentryMs = 4000;   // no target this long while tracking -> sentry
+                                             // (the tracker coasts, then searches, before that)
+constexpr int kSentryDetectEvery = 2;        // frames (YOLO is ~30 ms with int8 I/O)
 constexpr float kNudgeDeg = 10.0f;
 constexpr float kParkTilt = -90.0f;
 
@@ -58,6 +59,17 @@ bool have_prev;
 uint16_t prev_w, prev_h;
 uint32_t n_motion;
 
+void go_to_stop(int i, uint32_t now);
+
+int nearest_stop(float pan, float tilt)
+{
+    int best = 0;
+    for (int i = 1; i < kNumStops; i++)
+        if (hypotf(kStops[i].pan - pan, kStops[i].tilt - tilt) < hypotf(kStops[best].pan - pan, kStops[best].tilt - tilt))
+            best = i;
+    return best;
+}
+
 void enter(enum orch_state s, uint32_t now)
 {
     if (s == state) return;
@@ -70,6 +82,13 @@ void enter(enum orch_state s, uint32_t now)
         motion_set(AXIS_PAN, 0);
         motion_set(AXIS_TILT, kParkTilt);
         last_move_ms = now;
+    } else if (s == ORCH_SENTRY && state_before_enter == ORCH_TRACK) {
+        // Lost a target: patrol on from the nearest stop at once, no trip home first.
+        tracker_reset_target();
+        last_move_ms = now;
+        patrol.investigate = 0;
+        patrol.lap = 0;
+        go_to_stop(nearest_stop(motion_pos(AXIS_PAN), motion_pos(AXIS_TILT)), now);
     } else if (s == ORCH_SENTRY) {
         motion_set(AXIS_PAN, 0);
         motion_set(AXIS_TILT, 0);
@@ -295,6 +314,7 @@ void orch_frame(const struct cam_frame *f, uint32_t now, struct det_box *boxes, 
 
 void orch_tick(uint32_t now)
 {
+    tracker_tick(now, state == ORCH_TRACK);
     // Frames stopped (camera unplugged) while tracking: orch_frame() never runs, so give up here.
     if (state == ORCH_TRACK && now - last_target_ms > kLostToSentryMs + 1000) enter(ORCH_SENTRY, now);
 }

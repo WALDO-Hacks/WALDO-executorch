@@ -49,6 +49,7 @@ static int step(int frames = 1)
         for (int t = 0; t < 5; t++) {
             now += 20;
             motion_tick(0.02f);
+            orch_tick(now);
         }
         frame.count++;
         if (room) render_room();
@@ -70,11 +71,11 @@ int main()
     step(30);
     orch_init(now);
 
-    // SENTRY: nothing there -> the detector runs on every 4th frame only.
+    // SENTRY: nothing there -> the detector runs on every 2nd frame only.
     detect_calls = 0;
     step(20);
     CHECK(orch_state() == ORCH_SENTRY);
-    CHECK(detect_calls == 5);
+    CHECK(detect_calls == 10);
 
     // A face right of centre -> TRACK, and the turret pans right (negative pan).
     script[0] = {110, 50, 20, 20, 0.9f, 0};
