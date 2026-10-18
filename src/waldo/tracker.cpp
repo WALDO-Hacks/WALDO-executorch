@@ -6,7 +6,7 @@
 #include "motion.h"
 
 static struct {
-    float fov_long = 60;        // ESP32 OV3660: degrees across the sensor's long side
+    float fov_long = 56;        // OV3660, 66.5-68 deg diagonal (vendor specs) -> 55-57 deg across the 4:3 long side
     float deadband = 2.0f;      // degrees: closer than this to a still target, don't move
     int sign_pan = 1, sign_tilt = 1;
 } cfg;

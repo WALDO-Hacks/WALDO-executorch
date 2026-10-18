@@ -17,7 +17,7 @@ test_orchestrator: test_orchestrator.cpp $(W)/orchestrator.cpp $(W)/tracker.cpp 
 test_runner: test_runner.cpp $(W)/orchestrator.cpp $(W)/tracker.cpp $(W)/motion.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
-# The steering loop against lens FOVs of 40-100 deg (the tracker assumes 60).
+# The steering loop against lens FOVs of 40-100 deg (the tracker assumes 56).
 test_tracking_loop: test_tracking_loop.cpp $(W)/tracker.cpp $(W)/motion.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $^
 

@@ -108,6 +108,8 @@ void enter(enum orch_state s, uint32_t now)
         patrol.investigate = 0;
     } else if (s == ORCH_HOLD) {
         before_hold = state_before_enter;
+        // The target's speed goes stale while held: "go" must not coast or search on it.
+        tracker_lose_target();
         // Freeze where the turret is now, not where it was heading.
         motion_set(AXIS_PAN, motion_pos(AXIS_PAN));
         motion_set(AXIS_TILT, motion_pos(AXIS_TILT));

@@ -28,7 +28,7 @@ static void pwm(int, float) {}
 
 // ---- the simulated world ----
 constexpr int kW = 160, kH = 120;                 // rotated camera frame
-constexpr float kDegPx = 60.0f / kW;              // 60 degrees across the long side
+constexpr float kDegPx = 56.0f / kW;              // 56 degrees across the long side (OV3660)
 constexpr float kHalfW = kW / 2 * kDegPx - 2;     // ~28 deg: box centre must be in view
 constexpr float kHalfH = kH / 2 * kDegPx - 2;     // ~20 deg
 struct person { float pan, tilt; bool hidden; int cls; };

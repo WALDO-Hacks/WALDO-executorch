@@ -13,6 +13,10 @@
 
 const char *detect_class_name(int) { return "x"; }
 static void pwm(int, float) {}
+constexpr float kAssumedFov = 56;   // tracker.cpp's fov_long
+// A settled turret is within the tracker's 2 deg deadband (in its assumed degrees, so
+// 2 * true / assumed real degrees) plus about one frame of latency.
+static float settle_bound(float fov_true) { return 2.0f * fov_true / kAssumedFov + 1.5f; }
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
 static int fails;
 
@@ -64,13 +68,13 @@ int main()
     // 1. signs: a person 15 deg left and 8 deg up: the turret turns left (+pan) and up (+tilt) and ends on it.
     { Scn c = {60, 200, 100, 15, 8, 0, 0, 0, 5}; Res r = run(c);
       CHECK(motion_target(AXIS_PAN) > 10 && motion_target(AXIS_TILT) > 4);
-      CHECK(fabsf(r.err_pan) < 2.5f && fabsf(r.err_tilt) < 2.5f); }
+      CHECK(fabsf(r.err_pan) < settle_bound(60) && fabsf(r.err_tilt) < settle_bound(60)); }
     // ... and to the right and down: the other way.
     { Scn c = {60, 200, 100, -15, -8, 0, 0, 0, 5}; Res r = run(c);
       CHECK(motion_target(AXIS_PAN) < -10 && motion_target(AXIS_TILT) < -4);
-      CHECK(fabsf(r.err_pan) < 2.5f && fabsf(r.err_tilt) < 2.5f); }
+      CHECK(fabsf(r.err_pan) < settle_bound(60) && fabsf(r.err_tilt) < settle_bound(60)); }
 
-    // 2. the field of view of the real lens is a guess (the tracker assumes 60 deg): the loop settles for 40..100 deg,
+    // 2. the field of view of the real lens is a guess (the tracker assumes 56 deg): the loop settles for 40..100 deg,
     //    at 5 fps (the old gray link) and 10 fps, with 100 ms of image latency, and does not overshoot much.
     printf("true FOV  frame   settle error (pan/tilt)   pan overshoot\n");
     const float fovs[4] = {40, 60, 80, 100}, rates[2] = {200, 100};
@@ -80,7 +84,7 @@ int main()
         // Bounds: the tracker's 2 deg deadband is in assumed degrees, so on a lens of true FOV F it is 2 * F / 60 deg; one frame
         // of latency adds about 1.5 deg. Overshoot < 5 deg. These are the RECORDED behaviour of the loop (measured 0.0 - 4.4 deg
         // overshoot, 0.0 - 3.7 deg final error), not a design target: the real FOV is unmeasured.
-        const float bound = 2.0f * fovs[i] / 60.f + 1.5f;
+        const float bound = settle_bound(fovs[i]);
         CHECK(fabsf(r.err_pan) < bound && fabsf(r.err_tilt) < bound);
         CHECK(r.worst_pan_overshoot < 5.0f);
     }
@@ -92,7 +96,7 @@ int main()
 
     // 4. hidden for 8 s while the person stands still, then visible at the same place: the pose is held and the loop resumes.
     { Scn c = {60, 100, 100, 15, 0, 0, 3, 11, 16}; Res r = run(c);
-      CHECK(fabsf(r.err_pan) < 2.5f && fabsf(r.err_tilt) < 2.5f); }
+      CHECK(fabsf(r.err_pan) < settle_bound(60) && fabsf(r.err_tilt) < settle_bound(60)); }
 
     if (!fails) printf("tracking loop: all checks passed\n");
     return fails ? 1 : 0;
