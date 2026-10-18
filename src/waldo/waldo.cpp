@@ -53,6 +53,7 @@ static void st_print(uint32_t window_ms)
 }
 
 static volatile uint32_t ms;
+static bool orch_running;   // waldo_home() starts the orchestrator; the boot servo test runs first
 
 // For the on-screen status: the last word heard, frames per second, last NPU and frame time.
 static const char *heard_word;
@@ -100,7 +101,8 @@ void waldo_poll(void)
         const uint32_t cf = cycles();
         struct det_box boxes[8];
         int n;
-        orch_frame(f, now, boxes, 8, &n);   // runs the detector only when the state needs it
+        n = -1;
+        if (orch_running) orch_frame(f, now, boxes, 8, &n);   // runs the detector only when the state needs it
         const uint32_t orch_us = (cycles() - cf) / (SystemCoreClock / 1000000u);
         if (n >= 0) {
             uint32_t pre, npu, post;
@@ -139,7 +141,7 @@ void waldo_poll(void)
         float fps;
         camlink_stats(now, &ok, &bad, &lost, &fps);
         uint32_t mean = 0;
-        if (f) {
+        if (f && f->width && f->height) {
             for (uint32_t i = 0; i < (uint32_t)f->width * f->height; i++) mean += f->pix[i];
             mean /= (uint32_t)f->width * f->height;
         }
@@ -171,11 +173,12 @@ void waldo_poll(void)
 #endif
     if (word >= 0) {
         printf("HEARD: %s\n", kws_label(word));
-        orch_word(kws_label(word), now);
+        if (orch_running) orch_word(kws_label(word), now);
         heard_word = kws_label(word);
         heard_ms = now;
     }
 
+    if (orch_running) orch_tick(now);
     if (now - last >= 20) {
         motion_tick((now - last) / 1000.0f);
         last = now;
@@ -203,4 +206,5 @@ void waldo_home(void)
     motion_set(AXIS_PAN, 0);
     motion_set(AXIS_TILT, 0);
     orch_init(ms);   // start in SENTRY, looking ahead
+    orch_running = true;
 }

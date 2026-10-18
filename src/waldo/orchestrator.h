@@ -25,6 +25,8 @@ void orch_init(uint32_t now_ms);
 // detector found (n_out, -1 if it didn't run this frame) for the screen.
 void orch_frame(const struct cam_frame *f, uint32_t now_ms, struct det_box *boxes, int max, int *n_out);
 // A recognised voice command (kws_label() text).
+// Every main-loop pass: time-outs that must work without camera frames.
+void orch_tick(uint32_t now);
 void orch_word(const char *word, uint32_t now_ms);
 enum orch_state orch_state(void);
 const char *orch_state_name(enum orch_state s);
