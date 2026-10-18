@@ -87,6 +87,7 @@ fvp_stdout.log
 tests/host/test_orchestrator
 tests/host/test_tracking_loop
 tests/host/test_runner
+tests/host/test_tracking_loop
 yolov8n.pt
 tests/host/test_view
 tests/host/*.ppm

@@ -8,8 +8,9 @@ enum { AXIS_PAN = 0, AXIS_TILT = 1 };
 
 typedef void (*pwm_write_fn)(int axis, float us);
 
-// center_us < 0 keeps the value from servo_cal.h. Outputs the park pose at once:
-// a hobby servo can't report where it is, so the first pulse always snaps.
+// center_us < 0 keeps the value from servo_cal.h. Outputs the centre (what servo_hw_init
+// already holds) and ramps to the park pose at the slew rate. Every pulse is clamped to the
+// limits in servo_cal.h (TILT_MIN_DEG keeps the laser off the deck).
 void motion_init(pwm_write_fn write, int pan_center_us, int tilt_center_us);
 void motion_set(int axis, float deg);     // absolute target, clamped to the axis limits
 void motion_nudge(int axis, float ddeg);  // relative to the current target

@@ -11,8 +11,10 @@ void waldo_view_draw(const struct cam_frame *f, const struct det_box *boxes, int
                      enum orch_state state);
 
 // The status bands above and below the picture (the portrait camera view leaves 80 px of
-// the 480x800 panel free at each end): state and what WALDO follows on top; the last word
-// it heard, frame rate and NPU time at the bottom. Redrawn only when the text changes.
+// the 480x800 panel free at each end). Top: state and what WALDO follows; EYES = the big
+// core (M55-HP + Ethos-U85) running YOLO or only watching for motion. Bottom: EARS = the
+// small core (M55-HE + Ethos-U55) listening in the two-brain build, or ONE BRAIN; the last
+// word heard; frame rate. Redrawn only when the text changes.
 struct view_status {
     enum orch_state state;
     const char *following;   // class name
@@ -21,5 +23,10 @@ struct view_status {
     float fps;               // frames processed per second
     uint32_t npu_us;         // last detector inference
     uint32_t frame_us;       // last frame's total work
+    // Which brain does what, so it shows on the screen:
+    bool yolo_active;        // the detector ran in the last half second (else motion watch only)
+    bool two_brain;          // the M55-HE listens (two-brain build)
+    bool ears_ok;            // two-brain: the HE is listening
+    float ears_busy;         // two-brain: HE core busy, %
 };
 void waldo_view_status(const struct view_status *s);

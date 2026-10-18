@@ -71,7 +71,6 @@ int main()
     motion_set(AXIS_TILT, 0);
     step(30);
     orch_init(now);
-    CHECK(orch_hold_target());   // the shipped default: a lost target is kept
 
     // SENTRY: nothing there -> the detector runs on every 2nd frame only.
     detect_calls = 0;
@@ -118,16 +117,15 @@ int main()
     script[1] = {60, 50, 16, 16, 0.9f, 14};   // the cup, now left of centre
     float pan_cup = motion_target(AXIS_PAN);
     step(3);
-    CHECK(motion_target(AXIS_PAN) > pan_cup);  // still turning left, toward the cup
+    // Still the cup, and not pulled right toward the person (17 deg right). The scripted
+    // boxes don't move with the turret, so a few degrees of drift are the script's.
+    CHECK(tracker_target_class() == 14 && motion_target(AXIS_PAN) > pan_cup - 6);
 
     // "no" -> back to people: it turns right toward the person.
     orch_word("no", now);
     pan_cup = motion_target(AXIS_PAN);
     step(3);
     CHECK(motion_target(AXIS_PAN) < pan_cup);
-
-    // The original behaviour (hold target off): a lost target is given up after 5 s.
-    orch_set_hold_target(false);
 
     // Only objects in view (no person): not a target, so TRACK times out to SENTRY.
     script[0] = {60, 50, 16, 16, 0.9f, 15};   // a chair
@@ -147,81 +145,83 @@ int main()
     }
     CHECK(orch_state() == ORCH_SENTRY);
 
-    // ---- hold target (the default): what it follows is kept until another thing is specified ----
-    orch_set_hold_target(true);
-    script[0] = {110, 50, 20, 20, 0.9f, 0};   // a person right of centre
-    script_n = 1;
-    step(8);
-    CHECK(orch_state() == ORCH_TRACK);
-    // The person leaves for 30 s: still TRACK, pose held, no trip home.
-    float hp = motion_target(AXIS_PAN), ht = motion_target(AXIS_TILT);
+    // ---- a chosen class is kept (from the team's integration branch, without "hold target") ----
+    // "track cup": a person alone is not followed, a cup is.
     script_n = 0;
-    step(300);
-    CHECK(orch_state() == ORCH_TRACK);
-    CHECK(fabsf(motion_target(AXIS_PAN) - hp) < 0.01f && fabsf(motion_target(AXIS_TILT) - ht) < 0.01f);
-    // The camera also stops sending for 20 s: orch_tick() does not give up either.
-    for (int i = 0; i < 1000; i++) { now += 20; orch_tick(now); }
-    CHECK(orch_state() == ORCH_TRACK);
-    // The person comes back and is followed again.
-    script[0] = {40, 50, 20, 20, 0.9f, 0};
-    script_n = 1;
-    float before_back = motion_target(AXIS_PAN);
-    step(4);
-    CHECK(motion_target(AXIS_PAN) > before_back + 2);
-
-    // "track cup": the class is chosen by name. A person alone moving is not followed.
+    orch_word("off", now);   // a fresh start: SENTRY at home, the detector on every 2nd frame
+    orch_word("on", now);
     orch_track_class(14, now);
     CHECK(tracker_target_class() == 14);
-    script[0] = {130, 50, 16, 16, 0.9f, 0};   // person only, far right
+    script[0] = {130, 50, 16, 16, 0.9f, 0};   // a person, far right
     script_n = 1;
-    float p_cup0 = motion_target(AXIS_PAN);
+    const float p_cup0 = motion_target(AXIS_PAN);
     step(10);
-    CHECK(fabsf(motion_target(AXIS_PAN) - p_cup0) < 0.01f);
-    // A cup left of centre: the turret turns to it (+pan = left).
-    script[1] = {30, 50, 16, 16, 0.9f, 14};
+    CHECK(orch_state() == ORCH_SENTRY && fabsf(motion_target(AXIS_PAN) - p_cup0) < 0.01f);
+    script[1] = {30, 50, 16, 16, 0.9f, 14};   // a cup, left of centre
     script_n = 2;
     step(6);
-    CHECK(motion_target(AXIS_PAN) > p_cup0 + 2);
-    // The cup is gone for 40 s (only the person is visible): it still waits for a cup.
-    float p_wait = motion_target(AXIS_PAN);
-    script_n = 1;
-    step(400);
-    CHECK(orch_state() == ORCH_TRACK && tracker_target_class() == 14);
-    CHECK(fabsf(motion_target(AXIS_PAN) - p_wait) < 0.01f);
-    // "stop" then "go": the class survives.
+    CHECK(orch_state() == ORCH_TRACK && motion_target(AXIS_PAN) > p_cup0 + 2);   // +pan = left
+    // "stop" then "go" while tracking: same class, back to TRACK.
     orch_word("stop", now);
     orch_word("go", now);
     CHECK(orch_state() == ORCH_TRACK && tracker_target_class() == 14);
-    // Two cups, the first followed; both visible after a gap: it stays on the first even though the
-    // second is bigger.
-    script[0] = {30, 50, 12, 12, 0.9f, 14};   // cup A, small, left
-    script[1] = {120, 50, 24, 24, 0.9f, 14};  // cup B, bigger, right
-    script_n = 2;
-    orch_track_class(14, now);
-    script_n = 1; step(3);                    // only A is visible: A is followed
-    script_n = 0; step(50);                   // 5 s with nothing in view
-    script_n = 2; float p_a = motion_target(AXIS_PAN);
-    step(4);
-    CHECK(motion_target(AXIS_PAN) > p_a - 0.01f);   // toward A (left), not toward B on the right
-    // "no": back to people, class changes.
+    // The cup is gone (only the person is visible): after 4 s the patrol goes looking for cups.
+    script_n = 1;
+    step(50);
+    CHECK(orch_state() == ORCH_SENTRY && tracker_target_class() == 14);
+    // "no": back to people.
     orch_word("no", now);
     CHECK(tracker_target_class() == 0);
-    // A cup chosen while PARKED is ignored; "off" then "on" starts again with people.
-    CHECK(tracker_target_class() == 0);       // after "no"
+    // A class chosen while PARKED is ignored; "off" then "on" starts again with people.
+    script_n = 0;
     orch_word("off", now);
-    orch_track_class(14, now);                // PARKED: ignored
+    orch_track_class(14, now);
     CHECK(tracker_target_class() == 0);
     orch_word("on", now);
     CHECK(orch_state() == ORCH_SENTRY);
-    // In SENTRY a chosen class survives "stop" / "go" (nothing to resume, but the target is kept).
+    // In SENTRY a chosen class survives "stop"/"go"; "off"/"on" resets it.
     orch_track_class(14, now);
     orch_word("stop", now);
     orch_word("go", now);
     CHECK(orch_state() == ORCH_SENTRY && tracker_target_class() == 14);
-    orch_track_class(0, now);
+    orch_word("off", now);
+    orch_word("on", now);
+    CHECK(tracker_target_class() == 0);
 
-    // ---- wake word: commands act only while listening; "stop" and "off" always work ----
+    // ---- "yes": lock onto what is in the middle of the picture ----
+    // A cup in the middle, a person off to the side: "yes" follows cups, not the person.
+    orch_word("off", now);
+    orch_word("on", now);
+    script[0] = {72, 52, 16, 16, 0.9f, 14};    // a cup, centre (frame 160x120)
+    script[1] = {130, 40, 20, 40, 0.9f, 0};    // a person, right
+    script_n = 2;
+    orch_word("yes", now);
+    CHECK(orch_state() == ORCH_TRACK);
+    step(3);
+    CHECK(orch_state() == ORCH_TRACK && tracker_target_class() == 14);
+    // Only the person now: not followed (cups were chosen), the turret does not turn to it.
+    script_n = 1;
+    script[0] = script[1];
+    const float p_yes = motion_target(AXIS_PAN);
+    step(5);
+    CHECK(tracker_target_class() == 14 && fabsf(motion_target(AXIS_PAN) - p_yes) < 0.01f);
+    // "yes" with nothing in the middle (the person is far right): no change, and the
+    // pending lock is dropped after 1.5 s instead of firing later.
+    orch_word("yes", now);
+    step(20);
+    CHECK(tracker_target_class() == 14);
+    script[0] = {72, 52, 20, 40, 0.9f, 0};     // the person walks into the middle later
+    step(3);
+    CHECK(tracker_target_class() == 14);       // the old "yes" did not fire
+    // "yes" while PARKED: ignored.
+    orch_word("off", now);
+    orch_word("yes", now);
+    CHECK(orch_state() == ORCH_PARKED);
+    orch_word("on", now);
     script_n = 0;
+
+    // ---- wake word (from the team's integration branch): commands act only while listening;
+    //      "stop" and "off" always work ----
     CHECK(orch_listening(now));                 // not required (the default): always listening
     orch_set_wake_required(true);
     CHECK(!orch_listening(now));
@@ -255,9 +255,6 @@ int main()
     CHECK(orch_state() == ORCH_SENTRY);
     orch_set_wake_required(false);              // back to every word acts
     CHECK(orch_listening(now + 100000));
-    orch_word("off", now);
-    orch_word("on", now);
-    CHECK(orch_state() == ORCH_SENTRY);
 
     // "stop" in SENTRY then "go": back to SENTRY (nothing to resume).
     script_n = 0;
@@ -279,16 +276,17 @@ int main()
     step(1);
     CHECK(motion_target(AXIS_PAN) > 2);
 
-    // "off" -> PARKED: head down, the detector never runs; "up" is ignored; "on" wakes it.
+    // "off" -> PARKED: head as far down as is safe for the laser, the detector never runs;
+    // "up" is ignored; "on" wakes it.
     orch_word("off", now);
     CHECK(orch_state() == ORCH_PARKED);
-    CHECK(motion_target(AXIS_TILT) < -45);
+    CHECK(fabsf(motion_target(AXIS_TILT) - PARK_TILT) < 0.01f && PARK_TILT >= TILT_MIN_DEG);
     detect_calls = 0;
     script[0] = {70, 50, 20, 20, 0.9f, 0};
     script_n = 1;
     step(10);
     orch_word("up", now);
-    CHECK(detect_calls == 0 && orch_state() == ORCH_PARKED && motion_target(AXIS_TILT) < -45);
+    CHECK(detect_calls == 0 && orch_state() == ORCH_PARKED && fabsf(motion_target(AXIS_TILT) - PARK_TILT) < 0.01f);
     orch_word("on", now);
     CHECK(orch_state() == ORCH_SENTRY);
 

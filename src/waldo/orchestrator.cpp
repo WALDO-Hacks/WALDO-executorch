@@ -14,7 +14,6 @@ constexpr uint32_t kLostToSentryMs = 4000;   // no target this long while tracki
                                              // (the tracker coasts, then searches, before that)
 constexpr int kSentryDetectEvery = 2;        // frames (YOLO is ~30 ms with int8 I/O)
 constexpr float kNudgeDeg = 10.0f;
-constexpr float kParkTilt = -90.0f;
 
 // Motion detection: mean absolute difference per 8x8 cell between consecutive frames.
 constexpr int kCell = 8;
@@ -51,11 +50,11 @@ struct {
     uint32_t looks, yolo_looks;
 } patrol;
 
+// Wake word ("Hey Waldo"), off unless the firmware turns it on (orchestrator.h).
 constexpr uint32_t kListenMs = 5000;         // listening window after the wake word; each command renews it
-bool wake_required = false;                  // commands only work after the wake word (see orchestrator.h)
+bool wake_required;
 bool listening;
 uint32_t listen_until;
-bool hold_target = true;                     // a lost target stays the target (see orchestrator.h)
 enum orch_state state = ORCH_SENTRY;
 enum orch_state before_hold = ORCH_SENTRY;   // "go" after "stop" goes back to it
 uint32_t state_since, last_target_ms, last_move_ms, frames_in_state;
@@ -85,11 +84,12 @@ void enter(enum orch_state s, uint32_t now)
     frames_in_state = 0;
     if (s == ORCH_PARKED) {
         motion_set(AXIS_PAN, 0);
-        motion_set(AXIS_TILT, kParkTilt);
+        motion_set(AXIS_TILT, PARK_TILT);   // as low as is safe for the laser (servo_cal.h)
         last_move_ms = now;
     } else if (s == ORCH_SENTRY && state_before_enter == ORCH_TRACK) {
-        // Lost a target: patrol on from the nearest stop at once, no trip home first.
-        tracker_reset_target();
+        // Lost a target: patrol on from the nearest stop at once, no trip home first, still
+        // looking for the same kind of thing.
+        tracker_lose_target();
         last_move_ms = now;
         patrol.investigate = 0;
         patrol.lap = 0;
@@ -97,15 +97,18 @@ void enter(enum orch_state s, uint32_t now)
     } else if (s == ORCH_SENTRY) {
         motion_set(AXIS_PAN, 0);
         motion_set(AXIS_TILT, 0);
-        // Back to looking for people, unless a target was chosen and is to be kept (hold target):
-        // only a fresh start from PARKED resets that.
-        if (!hold_target || state_before_enter == ORCH_PARKED) tracker_reset_target();
+        // A chosen class (say "right" onto a cup) survives "stop"/"go"; only a fresh start
+        // from PARKED goes back to people.
+        if (state_before_enter == ORCH_PARKED) tracker_reset_target();
+        else tracker_lose_target();
         last_move_ms = now;
         patrol.phase = P_HOME;
         patrol.t = now;
         patrol.investigate = 0;
     } else if (s == ORCH_HOLD) {
         before_hold = state_before_enter;
+        // The target's speed goes stale while held: "go" must not coast or search on it.
+        tracker_lose_target();
         // Freeze where the turret is now, not where it was heading.
         motion_set(AXIS_PAN, motion_pos(AXIS_PAN));
         motion_set(AXIS_TILT, motion_pos(AXIS_TILT));
@@ -314,7 +317,7 @@ void orch_frame(const struct cam_frame *f, uint32_t now, struct det_box *boxes, 
         last_target_ms = now;
         last_move_ms = now;
         if (state == ORCH_SENTRY) enter(ORCH_TRACK, now);
-    } else if (state == ORCH_TRACK && !hold_target && now - last_target_ms > kLostToSentryMs) {
+    } else if (state == ORCH_TRACK && now - last_target_ms > kLostToSentryMs) {
         enter(ORCH_SENTRY, now);
     }
 }
@@ -323,7 +326,7 @@ void orch_tick(uint32_t now)
 {
     tracker_tick(now, state == ORCH_TRACK);
     // Frames stopped (camera unplugged) while tracking: orch_frame() never runs, so give up here.
-    if (state == ORCH_TRACK && !hold_target && now - last_target_ms > kLostToSentryMs + 1000) enter(ORCH_SENTRY, now);
+    if (state == ORCH_TRACK && now - last_target_ms > kLostToSentryMs + 1000) enter(ORCH_SENTRY, now);
 }
 
 void orch_word(const char *w, uint32_t now)
@@ -335,7 +338,7 @@ void orch_word(const char *w, uint32_t now)
             printf("orch: ignored (say \"Hey Waldo\" first)\n");
             return;
         }
-        if (!safety) {   // an accepted command keeps the window open for the next one; a safety word neither opens nor renews it
+        if (!safety) {   // an accepted command keeps the window open for the next one
             listen_until = now + kListenMs;
             listening = true;
         }
@@ -353,12 +356,21 @@ void orch_word(const char *w, uint32_t now)
         if (state != ORCH_PARKED) enter(ORCH_HOLD, now);
     } else if (!strcmp(w, "no")) {
         tracker_reset_target();   // drop what it follows, back to people
+    } else if (!strcmp(w, "yes")) {
+        // Lock onto what is in the middle of the picture and follow that kind of thing:
+        // point the turret at a cup ("left"/"right"), say "yes", and it tracks cups.
+        if (state == ORCH_PARKED) return;
+        tracker_switch(TRACK_SWITCH_CENTER, now);
+        if (state != ORCH_TRACK) {
+            enter(ORCH_TRACK, now);   // the detector runs on every frame there
+            last_target_ms = now;
+        }
     } else {
         int dir = !strcmp(w, "left") ? TRACK_SWITCH_LEFT : !strcmp(w, "right") ? TRACK_SWITCH_RIGHT
                 : !strcmp(w, "up") ? TRACK_SWITCH_UP : !strcmp(w, "down") ? TRACK_SWITCH_DOWN : 0;
         if (!dir || state == ORCH_PARKED) return;
         if (state == ORCH_TRACK) {
-            tracker_switch(dir);
+            tracker_switch(dir, now);
         } else {
             // +pan turns left, +tilt points up
             if (dir == TRACK_SWITCH_LEFT) motion_nudge(AXIS_PAN, kNudgeDeg);
@@ -389,9 +401,6 @@ bool orch_listening(uint32_t now)
     if (listening && (int32_t)(listen_until - now) <= 0) listening = false;
     return listening;
 }
-
-void orch_set_hold_target(bool on) { hold_target = on; }
-bool orch_hold_target(void) { return hold_target; }
 
 void orch_track_class(int cls, uint32_t now)
 {

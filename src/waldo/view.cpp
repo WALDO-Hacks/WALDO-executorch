@@ -29,29 +29,48 @@ static const uint8_t kStateColour[4][3] = {{230, 40, 40}, {60, 140, 255}, {40, 2
 
 void waldo_view_status(const struct view_status *s)
 {
-    static char last_top[48], last_bottom[96];
-    char top[48], heard[40], perf[56], bottom[96];
+    static char last_top[128], last_bottom[160];
+    char top[48], eyes[48], ears[48], heard[40], perf[48], key_top[128], key_bottom[160];
     snprintf(top, sizeof top, "%s  %s", orch_state_name(s->state),
              s->state == ORCH_PARKED ? "" : s->following);
+    // EYES: the big core. YOLO on its NPU, or the cheap motion watch on the CPU.
+    const bool parked = s->state == ORCH_PARKED;
+    if (parked) snprintf(eyes, sizeof eyes, "EYES  off (parked)");
+    else if (s->yolo_active)
+        snprintf(eyes, sizeof eyes, "EYES  M55-HP+U85  YOLO %lu ms", (unsigned long)((s->npu_us + 500) / 1000));
+    else snprintf(eyes, sizeof eyes, "EYES  M55-HP  motion watch");
+    // EARS: the small core in the two-brain build.
+    if (!s->two_brain) snprintf(ears, sizeof ears, "ONE BRAIN  M55-HP hears too");
+    else if (s->ears_ok) snprintf(ears, sizeof ears, "EARS  M55-HE+U55  %.0f%% busy", (double)s->ears_busy);
+    else snprintf(ears, sizeof ears, "EARS  M55-HE  not listening");
     if (s->heard) snprintf(heard, sizeof heard, "heard \"%s\"", s->heard);
-    else snprintf(heard, sizeof heard, "say: go stop left right off");
-    snprintf(perf, sizeof perf, "%4.1f fps   NPU %2lu ms   frame %2lu ms", (double)s->fps,
-             (unsigned long)((s->npu_us + 500) / 1000), (unsigned long)((s->frame_us + 500) / 1000));
+    else snprintf(heard, sizeof heard, "say: go stop left right yes off");
+    snprintf(perf, sizeof perf, "%4.1f fps   frame %2lu ms", (double)s->fps,
+             (unsigned long)((s->frame_us + 500) / 1000));
     const bool fresh = s->heard && s->heard_age_ms < 2000;   // a new word stands out for 2 s
-    snprintf(bottom, sizeof bottom, "%s|%s|%d", heard, perf, fresh);
+    snprintf(key_top, sizeof key_top, "%s|%s|%d", top, eyes, s->yolo_active);
+    snprintf(key_bottom, sizeof key_bottom, "%s|%s|%s|%d|%d", ears, heard, perf, fresh, s->ears_ok);
 
     const int w = BOARD_DISPLAY_WIDTH, h = BOARD_DISPLAY_HEIGHT;
-    if (strcmp(top, last_top) != 0) {
+    if (strcmp(key_top, last_top) != 0) {
         const uint8_t *c = kStateColour[s->state];
         board_display_fill(0, 0, w, 80, 0, 0, 0);
-        board_display_text(16, 14, top, c[0], c[1], c[2], 4);
+        board_display_text(12, 4, top, c[0], c[1], c[2], 3);
+        // YOLO running: bright green; motion watch: dim blue; parked: grey.
+        if (parked) board_display_text(12, 46, eyes, 120, 120, 120, 2);
+        else if (s->yolo_active) board_display_text(12, 46, eyes, 60, 255, 60, 2);
+        else board_display_text(12, 46, eyes, 110, 150, 220, 2);
         board_display_fill(0, 74, w, 6, c[0], c[1], c[2]);
-        strcpy(last_top, top);
+        strcpy(last_top, key_top);
     }
-    if (strcmp(bottom, last_bottom) != 0) {
+    if (strcmp(key_bottom, last_bottom) != 0) {
         board_display_fill(0, h - 80, w, 80, 0, 0, 0);
-        board_display_text(16, h - 72, heard, fresh ? 255 : 150, fresh ? 220 : 150, fresh ? 0 : 150, 3);
-        board_display_text(16, h - 30, perf, 200, 200, 200, 2);
-        strcpy(last_bottom, bottom);
+        // EARS orange while the HE listens, red if it stopped; one brain grey.
+        if (!s->two_brain) board_display_text(12, h - 78, ears, 150, 150, 150, 2);
+        else if (s->ears_ok) board_display_text(12, h - 78, ears, 255, 160, 40, 2);
+        else board_display_text(12, h - 78, ears, 255, 60, 60, 2);
+        board_display_text(12, h - 52, heard, fresh ? 255 : 150, fresh ? 220 : 150, fresh ? 0 : 150, 2);
+        board_display_text(12, h - 26, perf, 200, 200, 200, 2);
+        strcpy(last_bottom, key_bottom);
     }
 }

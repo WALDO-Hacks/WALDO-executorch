@@ -150,3 +150,25 @@ void brain_hp_print(uint32_t window_ms)
            (unsigned long)m->mic_errors, (unsigned long)windows, (unsigned long)mfcc, (unsigned long)npu,
            (unsigned long)window_ms, window_ms ? (double)(mfcc + npu) / (window_ms * 10.0) : 0.0);
 }
+
+bool brain_hp_status(uint32_t now_ms, float *busy_pct)
+{
+    // Its own snapshot, separate from brain_hp_print()'s.
+    static uint32_t t0, beat0, busy0, beat_ms;
+    static float busy;
+    refresh();
+    if (!alive()) {
+        *busy_pct = 0;
+        return false;
+    }
+    const uint32_t beat = m->heartbeat, work = m->mfcc_us + m->npu_us;
+    if (beat != beat0) beat_ms = now_ms;
+    if (now_ms - t0 >= 1000) {
+        busy = (t0 && work >= busy0) ? (work - busy0) / ((now_ms - t0) * 10.0f) : busy;
+        t0 = now_ms;
+        busy0 = work;
+    }
+    beat0 = beat;
+    *busy_pct = busy;
+    return !m->error && m->stage == BRAIN_LISTENING && now_ms - beat_ms < 3000;
+}

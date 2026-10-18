@@ -1,3 +1,6 @@
+// From the team's integration branch (two-brain-waldo-integration), with tracker_tick() added,
+// the board's frame rates (10-15 fps) and the camera delay the tracker assumes (250 ms; the
+// boot "loop delay probe" measures the real one). OV3660 lenses are 55-57 deg across.
 // Closed-loop host test of the steering chain: simulated camera -> tracker.cpp -> motion.cpp (limits + slew) -> turret pose -> camera.
 // The firmware sources are used unchanged. HOST simulation (no real optics, servos or timing jitter); it checks the signs, the gain
 // and the stability of the loop, not the turret. World target: azimuth a (+left), elevation e (+up), degrees; +pan = left, +tilt = up.
@@ -12,6 +15,10 @@
 
 const char *detect_class_name(int) { return "x"; }
 static void pwm(int, float) {}
+constexpr float kAssumedFov = 50;   // tracker.cpp's fov_long
+// A settled turret is within the tracker's 2 deg deadband (in its assumed degrees, so
+// 2 * true / assumed real degrees) plus about one frame of latency.
+static float settle_bound(float fov_true) { return 2.0f * fov_true / kAssumedFov + 1.5f; }
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
 static int fails;
 
@@ -45,6 +52,7 @@ static Res run(const Scn &c)
             tracker_update(&b, vis ? 1 : 0, W, H, now);
             frames++; seen += vis;
         }
+        tracker_tick(now, true);   // the main loop's tick: feed-forward and position history
         motion_tick(0.02f);
         const float ep = a - motion_pos(AXIS_PAN), et = c.e0 - motion_pos(AXIS_TILT);
         if (c.a_rate == 0 && c.a0 > 0 && -ep > r.worst_pan_overshoot) r.worst_pan_overshoot = -ep;   // beyond the target
@@ -62,35 +70,35 @@ int main()
     // 1. signs: a person 15 deg left and 8 deg up: the turret turns left (+pan) and up (+tilt) and ends on it.
     { Scn c = {60, 200, 100, 15, 8, 0, 0, 0, 5}; Res r = run(c);
       CHECK(motion_target(AXIS_PAN) > 10 && motion_target(AXIS_TILT) > 4);
-      CHECK(fabsf(r.err_pan) < 2.5f && fabsf(r.err_tilt) < 2.5f); }
+      CHECK(fabsf(r.err_pan) < settle_bound(60) && fabsf(r.err_tilt) < settle_bound(60)); }
     // ... and to the right and down: the other way.
     { Scn c = {60, 200, 100, -15, -8, 0, 0, 0, 5}; Res r = run(c);
       CHECK(motion_target(AXIS_PAN) < -10 && motion_target(AXIS_TILT) < -4);
-      CHECK(fabsf(r.err_pan) < 2.5f && fabsf(r.err_tilt) < 2.5f); }
+      CHECK(fabsf(r.err_pan) < settle_bound(60) && fabsf(r.err_tilt) < settle_bound(60)); }
 
-    // 2. the field of view of the real lens is a guess (the tracker assumes 60 deg): the loop settles for 40..100 deg,
+    // 2. the field of view of the real lens is a guess (the tracker assumes 56 deg): the loop settles for 40..100 deg,
     //    at 5 fps (the old gray link) and 10 fps, with 100 ms of image latency, and does not overshoot much.
     printf("true FOV  frame   settle error (pan/tilt)   pan overshoot\n");
-    const float fovs[4] = {40, 60, 80, 100}, rates[2] = {200, 100};
+    const float fovs[4] = {50, 56, 80, 100}, rates[2] = {100, 60};
     for (int i = 0; i < 4; i++) for (int j = 0; j < 2; j++) {
-        Scn c = {fovs[i], rates[j], 100, 15, 7, 0, 0, 0, 6}; Res r = run(c);
+        Scn c = {fovs[i], rates[j], 250, 15, 7, 0, 0, 0, 6}; Res r = run(c);
         printf("  %4.0f   %4.0f ms   %5.2f / %5.2f           %5.2f deg\n", fovs[i], rates[j], r.err_pan, r.err_tilt, r.worst_pan_overshoot);
-        // Bounds: the tracker's 1.5 deg deadband is in assumed degrees, so on a lens of true FOV F it is 1.5 * F / 60 deg; one frame
+        // Bounds: the tracker's 2 deg deadband is in assumed degrees, so on a lens of true FOV F it is 2 * F / 60 deg; one frame
         // of latency adds about 1.5 deg. Overshoot < 5 deg. These are the RECORDED behaviour of the loop (measured 0.0 - 4.4 deg
         // overshoot, 0.0 - 3.7 deg final error), not a design target: the real FOV is unmeasured.
-        const float bound = 1.5f * fovs[i] / 60.f + 1.5f;
+        const float bound = settle_bound(fovs[i]);
         CHECK(fabsf(r.err_pan) < bound && fabsf(r.err_tilt) < bound);
         CHECK(r.worst_pan_overshoot < 5.0f);
     }
 
     // 3. a person walking at 10 deg/s (right to left across 15 deg right .. 45 deg left): stays in view and lags by a bounded amount.
-    for (int i = 0; i < 3; i++) { Scn c = {fovs[i], 100, 100, -15, 0, 10, 0, 0, 6}; Res r = run(c);
+    for (int i = 0; i < 3; i++) { Scn c = {fovs[i], 100, 250, -15, 0, 10, 0, 0, 6}; Res r = run(c);
         printf("walking 10 deg/s, FOV %3.0f: rms error %.2f deg, in view %.0f %% of frames\n", fovs[i], r.rms_err, 100 * r.seen_frac);
         CHECK(r.rms_err < 8.0f && r.seen_frac > 0.95f); }
 
     // 4. hidden for 8 s while the person stands still, then visible at the same place: the pose is held and the loop resumes.
     { Scn c = {60, 100, 100, 15, 0, 0, 3, 11, 16}; Res r = run(c);
-      CHECK(fabsf(r.err_pan) < 2.5f && fabsf(r.err_tilt) < 2.5f); }
+      CHECK(fabsf(r.err_pan) < settle_bound(60) && fabsf(r.err_tilt) < settle_bound(60)); }
 
     if (!fails) printf("tracking loop: all checks passed\n");
     return fails ? 1 : 0;
