@@ -3,12 +3,6 @@
 > Pan/tilt flashlight turret. Finds people, follows them, obeys voice commands.  
 > Two ExecuTorch models. Two NPUs. Two cores. No PC. No cloud.
 
-
-https://github.com/user-attachments/assets/c7e937ec-b346-4782-82a6-bf7b16476e33
-
-https://github.com/user-attachments/assets/a68f28ef-1706-4824-8a5f-49ceb8560f89
-
-
 ---
 
 ## What it does
@@ -23,6 +17,10 @@ no PC, no cloud, no second board.
 | 👂 **Hears** | MicroNet-M (fine-tuned) — 10 command words, **100 % on the Ethos-U55** NPU |
 | 🧠 **Decides** | One state machine on the HP core: PARKED → SENTRY → TRACK → HOLD |
 | 🔦 **Moves** | Two servos on **hardware UTIMER PWM** — jitter-free 50 Hz, zero CPU cost |
+
+### 📹 Tracking demo
+
+https://github.com/user-attachments/assets/c7e937ec-b346-4782-82a6-bf7b16476e33
 
 ---
 
@@ -96,8 +94,9 @@ re-check — the NPU only wakes for real events.
 
 ## Voice commands
 
-<!-- DEMO VIDEO 2: voice commands -->
-<!-- Paste your video URL here -->
+### 📹 Voice demo
+
+https://github.com/user-attachments/assets/a68f28ef-1706-4824-8a5f-49ceb8560f89
 
 | Word | Effect |
 |---|---|
@@ -138,12 +137,9 @@ synthetic voices (26 speakers × 10 words) with room and microphone augmentation
 
 ## Reliability & reproducibility
 
-- **Boot self-test:** firmware runs KWS on a recorded "yes" and YOLO on a photo of people
-  before entering SENTRY — both results are printed to the console.
-- **CI on Arm FVPs:** `.github/workflows/fvp-sim.yml` runs YOLOv8n on Corstone-320 (U85)
-  and MicroNet on both Corstone-320 and Corstone-300 (U55-128) on every push.
-- **Host tests:** `make -C tests/host` runs the orchestrator, tracker and patrol memory
-  against a simulated room, and tests the two-brain mailbox (restarts, overflow, wrap-around).
+- **Boot self-test:** firmware runs KWS on a recorded "yes" and YOLO on a photo of people before entering SENTRY — both results printed to the console.
+- **CI on Arm FVPs:** `.github/workflows/fvp-sim.yml` runs YOLOv8n on Corstone-320 (U85) and MicroNet on both Corstone-320 and Corstone-300 (U55-128) on every push.
+- **Host tests:** `make -C tests/host` runs the orchestrator, tracker and patrol memory against a simulated room, and tests the two-brain mailbox (restarts, overflow, wrap-around).
 
 ---
 
