@@ -1,172 +1,216 @@
-# ExecuTorch on Ethos-U85: hackathon guide
+# WALDO: a voice-controlled turret that finds and follows, on one Alif E8
 
-The Arm ExecuTorch example, on its `hackathon` branch with the Alif board
-added. One CMSIS solution runs a tiny int8 CNN on the Ethos-U85 of the **Alif
-Ensemble E8 DevKit** or the **Ensemble E8 AI/ML AppKit** (Cortex-M55 HP core)
-and on the **Corstone-320 FVP**; you switch between them by target-type. The model is exported from PyTorch in three steps: the
-CMSIS-Toolbox describes the target, `create_ai_layer.py` turns that into the
-AI layer, the toolbox builds the application. This page takes you from an
-empty machine to a debug session on the board. Everything about the example
-itself is in [documentation/example.md](documentation/example.md).
+WALDO is a pan/tilt turret with a flashlight. It looks for people and objects with a
+camera, points at them, and keeps following them. You steer it by voice: "stop", "go",
+"left", "off". All of it runs on the **Alif Ensemble E8 DevKit**, with no PC and no cloud.
+Three neural networks run through **ExecuTorch on the Ethos-U85 NPU**, and the Cortex-M55
+does the rest.
 
-## 1. Host tools
+Built for the Arm + Meta ExecuTorch hackathon on this repository's `hackathon` template.
+The original setup guide for the template is in
+[documentation/template-guide.md](documentation/template-guide.md).
 
-1. Install [VS Code](https://code.visualstudio.com/).
-2. Install the extensions **Keil Studio Pack** (`Arm.keil-studio-pack`, which
-   brings the CMSIS Solution extension 1.72.0 or newer with CMSIS-Toolbox
-   2.15) and **Python** (`ms-python.python`). Sign in with an
-   Arm account when Keil Studio asks; the free Keil MDK Community license is
-   enough.
-3. Nothing else by hand: when you open the project, the Arm Tools Environment
-   Manager offers to install the tools pinned in `vcpkg-configuration.json`
-   (CMSIS-Toolbox, Arm Compiler 6, GCC, CMake, Ninja, and on Linux and
-   Windows the Corstone-320 FVP; macOS runs it in Docker, see step 6). Accept.
-4. Optional: the **CMSIS Developer Assistant** extension lets an AI agent
-   (Claude Code or GitHub Copilot Chat) build, flash and debug the board
-   through an MCP server. Install it, install one of the agents, run
-   **CMSIS Developer Assistant: Configure Agents and Skills** from the command
-   palette and pick at least the `cmsis-debug-live` and `cmsis-help` skills.
+<!-- demo GIF / photo goes here -->
 
-## 2. Alif and SEGGER tools (board only)
+## How it works
 
-1. **Alif SETOOLS** V1.110.000 or later from the
-   [Alif software and tools page](https://alifsemi.com/support/software-tools/ensemble/)
-   (login required). Unpack it; on Linux and macOS make the tools executable
-   and install the Python packages its README lists. Add the root directory
-   (the one with `app-gen-toc` and `app-write-mram`) to your VS Code user
-   settings:
-
-   ```json
-   "alif.setools.root": "/absolute/path/to/setools"
-   ```
-
-2. **SEGGER J-Link Software** V8.42 or later from
-   [segger.com](https://www.segger.com/downloads/jlink/). The board has an
-   on-board J-Link.
-
-## 3. Board
-
-- Connect a USB cable to **PRG USB** (USB-C in the corner of the DevKit,
-  Micro-USB on the AppKit). It powers the board and carries the J-Link and a
-  USB-to-UART bridge. Leave the other USB device connector unconnected.
-- DevKit: jumpers at their defaults, **JP5 on 1-2**, **JP7 on 3-4**. Never
-  move jumpers with power applied.
-- **SW4** (on both boards) selects what the UART bridge is connected to:
-
-  | SW4 | Connected to | Used for |
-  |-----|--------------|----------|
-  | `SEUART` (default) | Secure Enclave UART | SETOOLS (step 5) |
-  | `UART2` (AppKit only, middle position) | Application UART2 | Not used here |
-  | `UART4` | Application UART4, 115200 8N1 | The example's console (step 6) |
-
-- With the board attached, run these once: in the SETOOLS directory
-  `updateSystemPackage -d` (SW4 on `SEUART`; picks the serial port, checks the
-  system firmware, offers to make the E8 the default target: answer yes), and
-  J-Link Commander (`JLinkExe`, `JLink.exe` on Windows), which updates the
-  on-board J-Link firmware and installs its serial-port drivers.
-
-## 4. Project
-
-```bash
-git clone https://github.com/Arm-Examples/CMSIS-Executorch.git
-cd CMSIS-Executorch
-git checkout hackathon
+```mermaid
+flowchart LR
+    subgraph HEAD["ESP32-S3 camera head (the eye)"]
+        CAM["OV3660 sensor<br/>JPEG encoder in hardware"]
+    end
+    subgraph E8["Alif Ensemble E8: Cortex-M55 HP + Ethos-U85"]
+        RX["UART RX + JPEG decode<br/>(M55)"]
+        FACE["BlazeFace<br/>faces (U85)"]
+        YOLO["YOLOv8n<br/>28 object classes (U85)"]
+        MOT["Motion detect<br/>(M55, no model)"]
+        MIC["2 PDM mics<br/>MFCC (M55)"]
+        KWS["MicroNet KWS<br/>10 words (U85)"]
+        ORCH{{"Orchestrator<br/>PARKED · SENTRY · TRACK · HOLD"}}
+        TRK["Tracker<br/>+ motion layer"]
+        LCD["LCD: what WALDO sees"]
+    end
+    SERVO["Pan / tilt servos<br/>+ flashlight"]
+    CAM -- "320x240 colour, 2 Mbaud UART" --> RX
+    RX --> MOT & FACE & YOLO
+    MIC --> KWS
+    MOT & FACE & YOLO & KWS --> ORCH
+    ORCH --> TRK --> SERVO
+    ORCH --> LCD
 ```
 
-Open the folder in VS Code and accept the tool activation and the pack
-installation (`PyTorch::ExecuTorch`, `AlifSemiconductor::Ensemble`, CMSIS).
-In the CMSIS view open **Manage Solution**, choose the target-type
-of your board, **DevKit-E8** or **AppKit-E8** (**SSE-320-U85** for the FVP),
-and click **Apply**.
+**The hardware split.** The ESP32 is only the eye: it captures, compresses in its own
+JPEG hardware, and sends. Every model and every decision runs on the E8. Each job goes to
+the unit that fits it:
 
-The repository ships a generated AI layer, so no Python is needed to build.
-To change the model, run **Terminal > Run Task > Setup Python virtual
-environment** once (several GB of PyTorch, takes a while; the **(uv)**
-variant of the task uses uv and can download the Python version it asks
-for), edit `model/model.py`, and run the task **Create AI layer** before
-building.
+| Job | Runs on | Why |
+|---|---|---|
+| Face and object detection, keyword spotting | **Ethos-U85** via ExecuTorch | dense int8 convolutions; every operator of all three models runs on the NPU |
+| MFCC audio features, JPEG decode, motion detection, box decoding and NMS | **Cortex-M55** | branchy or small work, cheaper on the CPU than a trip to the NPU |
+| Microphone capture, camera bytes | PDM block, UART, both on interrupts | audio and frames arrive while the NPU runs |
+| Servo PWM | UTIMER hardware | jitter-free 50 Hz, no CPU cost |
 
-## 5. Prepare the board once
+### The orchestrator
 
-The Secure Enclave boots the M55 cores from a table of contents in MRAM; the
-debugger needs that table to point at a debug stub.
+The orchestrator is one state machine
+([src/waldo/orchestrator.cpp](src/waldo/orchestrator.cpp)). It decides how much work each
+camera frame gets, so heavy models run only when there is something to look at.
 
-1. SW4 to **SEUART**, PRG USB attached.
-2. **Terminal > Run Task > Alif: Install M55_HP debug stubs (DevKit-E8, single core configuration)**,
-   or the **(AppKit-E8, ...)** task for the AppKit. Choose COM port
-   discovery (`-d`) the first time; SETOOLS remembers the port. The task
-   selects the board's part in SETOOLS (`AE822FA0E5597LS0` for the DevKit,
-   `AE822FA0E5597BS0` for the AppKit: the part goes into the table of
-   contents, and the Secure Enclave does not boot a table built for another
-   part), copies the configuration and stub from `.alif/` into the SETOOLS
-   tree and runs `app-gen-toc` and `app-write-mram`. If `app-write-mram`
-   reports a different revision of the board, answer `y`: only the part
-   number decides whether the table boots.
-3. SW4 to **UART4**.
+```mermaid
+stateDiagram-v2
+    [*] --> SENTRY
+    SENTRY --> TRACK: target found / motion
+    TRACK --> SENTRY: target lost 5 s
+    TRACK --> HOLD: "stop"
+    SENTRY --> HOLD: "stop"
+    HOLD --> SENTRY: "go"
+    SENTRY --> PARKED: "off"
+    TRACK --> PARKED: "off"
+    HOLD --> PARKED: "off"
+    PARKED --> SENTRY: "on" / "go"
+```
 
-Repeat this after another project has reprogrammed the table.
+| State | What runs | Turret |
+|---|---|---|
+| PARKED | microphones only | head down |
+| SENTRY | motion detection on every frame (CPU only); the detector on every 4th frame | looks ahead and turns toward movement |
+| TRACK | the detector on every frame | follows the target |
+| HOLD | the detector on every frame | frozen |
 
-## 6. Build, run, debug
+**Voice commands:**
 
-1. With SW4 on **UART4**, open the **Serial Monitor** panel on the PRG USB
-   port, 115200 baud.
-2. In the CMSIS view click **Build**, then **Debug** (or **Run**). Keil Studio
-   starts the J-Link GDB server over SWD, loads the image into MRAM and stops
-   at `main`; continue with F5. The console shows:
+| Word | Effect |
+|---|---|
+| off | park |
+| on / go | wake up or resume |
+| stop | hold still |
+| left / right / up / down | while tracking: **switch to the next target in that direction**; otherwise: nudge the turret 10° |
+| no | drop the current target |
 
-   ```text
-   Ethos-U version info:
-       Arch:       v2.0.0
-       MACs/cc:    256
-       Cmd stream: v1
-   ExecuTorch Ethos-U85 example: 8736 byte model
-   Output: 10 element(s): -0.0142 0.0206 0.0601 -0.0886 0.0791 0.0522 -0.0301 -0.0775 -0.2800 -0.0095
-   Test_result: PASS
-   ```
+The screen shows the camera view with boxes on what WALDO sees (the target in green) and
+a bar for the state: red PARKED, blue SENTRY, green TRACK, yellow HOLD.
 
-3. Set a breakpoint after `module.forward(input)` in `src/app_main.cpp` and
-   inspect the output tensor, or ask the CMSIS Developer Assistant to do it:
-   "Build for the DevKit-E8, load it, break after the inference and show me
-   the output logits."
+## The models
 
-**FVP instead of the board:** choose the **SSE-320-U85** target-type and click
-**Run** or **Debug**; the same output appears in the terminal. On macOS,
-where Arm ships no FVP build, the FVP runs in Docker: set `model:` in the
-csolution's SSE-320-U85 target-set to `${workspaceFolder}/.vscode/fvp.sh`,
-copy `.vscode/launch.json.mac` to `.vscode/launch.json`, and keep Docker
-Desktop running (the first run builds the image, about 100 MB).
+All three go through the same flow as the template's model: PyTorch, then int8 PT2E with
+the `EthosUQuantizer`, then the Ethos-U partitioner, then Vela, then a `.pte` embedded in
+the image.
 
-## 7. If something does not work
+| Model | Task | Input | NPU ops | Program | Source |
+|---|---|---|---|---|---|
+| **BlazeFace** | face detection | 128x128 gray | 100 % | 200 KB | MediaPipe front model, first conv folded to 1 channel ([model/model.py](model/model.py)) |
+| **MicroNet-M** | keyword spotting, 10 words | 49x10 MFCC (1 s at 16 kHz) | 42/42 | 170 KB | Arm ML-Zoo, rebuilt in PyTorch from its TFLite weights ([model/kws](model/kws)) |
+| **YOLOv8n** | 28 object classes | 320x320 RGB | 99/99 | 3.0 MB | Ultralytics, head sliced to 28 room classes by our vision lead ([model/yolo](model/yolo)) |
 
-- **J-Link connects but never stops at `main`:** either the table of contents
-  does not point at the debug stub (repeat step 5), or the image cannot boot.
-  Look before reprogramming: in the debugger, read the vector table at
-  `0x80200000` and the fault registers (CFSR/HFSR); a PC of `0xEFFFFFFE` is a
-  lockup at reset, which an image linked to run from ITCM produces when the
-  code that copies it there is itself in ITCM.
-- **Debug hangs at "Connecting":** the target-set was switched to
-  `protocol: jtag`. Keep SWD: the generated load task blocks on JLinkExe's
-  JTAG-chain prompt, and the device stays in SWD mode after any SWD use
-  until it is power-cycled.
-- **No console output:** SW4 is still on `SEUART`, or the port was opened
-  before the switch was moved. Set `UART4` and reopen the port.
-- **`app-write-mram` gets no answer:** press reset while it waits, check SW4
-  is on `SEUART`, close any terminal holding the port.
-- **"`.venv` does not exist":** run the task **Setup Python virtual
-  environment** first; it is only needed to regenerate the AI layer.
-- `.vscode/launch.json` is generated by the extension for the target-types
-  and is not committed; after **Apply** it has a J-Link entry for the
-  DevKit-E8 or the AppKit-E8. That is expected.
+Only the float-to-int8 conversions at each model's input and output stay on the CPU.
 
-## Read on
+## Measured
 
-- [documentation/example.md](documentation/example.md): the example, the
-  command-line flow, how the model is generated.
-- [board/DevKit-E8/README.md](board/DevKit-E8/README.md): the board layer,
-  memory map and RTE configuration.
-- [board/AppKit-E8/README.md](board/AppKit-E8/README.md): the AppKit-E8
-  layer and what differs from the DevKit.
-- [documentation/mlops-flow.md](documentation/mlops-flow.md): the `mlops:`
-  node and `*.cbuild-mlops.yml` in detail.
-- [documentation/pack-provenance.md](documentation/pack-provenance.md): where
-  the `PyTorch::ExecuTorch` pack comes from and how to move to a new version.
+`board` means measured on the DK-E8, and `host` means checked on a PC.
+
+| What | Number | Where |
+|---|---|---|
+| BlazeFace inference | **9.4 ms** on the U85 | board |
+| Full face-tracking frame: preprocess 3.6 + NPU 9.4 + decode 0.6 + display 12.1 | 25.6 ms (27 % of the CPU at 10 fps) | board |
+| Boot self-test: face found on a built-in photo | `Test_result: PASS` | board |
+| Microphones: both channels at 16 kHz, no FIFO errors | — | board |
+| Camera link, grayscale 160x120 (v1) | 10.4 fps | board |
+| Camera link, **colour JPEG 320x240** (v2) | **27.8 fps** at about 3–12 KB per frame | camera head |
+| JPEG decode of a 320x240 camera frame | 0.25–0.7 ms on a laptop; the M55 is still to be measured | host |
+| KWS: int8 model vs float vs Arm's TFLite original on the sample clips | agree on every word | host |
+| YOLOv8n int8 on the team's 12 golden images vs the float model | agree on all but 3 near-threshold detections | host |
+| YOLOv8n on a DK-E8 (the team's own export) | 29 ms per frame, mAP50 0.439 board vs 0.439 host | board |
+
+### Optimisations
+
+- **The camera sends JPEG**, compressed by the sensor's own hardware. Colour at 4x the
+  pixels and 2.7x the frame rate, over the same 2 Mbaud UART.
+- **Motion gating in SENTRY**: the detector runs on 1 frame in 4 until something moves.
+- **Audio features are computed as audio arrives.** Each 20 ms of audio adds one MFCC
+  frame, so a 1 s window never needs recomputing; the NPU classifies it every 200 ms.
+- **The NPU only sees work it is good at.** Every operator of every model is delegated.
+- **Per-stage timing**: every 2 s the board prints mean and worst time per stage
+  (preprocess, NPU, decode, orchestrator, display), which is how we found that the display,
+  not the NPU, is the most expensive stage.
+
+## Hardware
+
+| Part | Connection |
+|---|---|
+| Alif Ensemble E8 DevKit | PRG USB for power, flashing and the console |
+| Pan servo | J10 pin 27 (P7_4, UTIMER 10) |
+| Tilt servo | J10 pin 20 (P6_2, UTIMER 5) |
+| Servo power | separate 6 V supply, ground shared with the E8 |
+| ESP32-S3-CAM (OV3660) | GPIO14 (TX) → E8 UART0 RX (P1_4); GPIO21 (RX) ← E8 UART0 TX (P1_5); J10 pins 33 / 35 (check the TX/RX labels against your board); shared ground |
+
+The J10 header is level-shifted to 3.3 V on the DevKit. The servo signals connect directly.
+
+## Build and run
+
+You need CMSIS-Toolbox 2.15, Arm GNU Toolchain 14.3 and Alif SETOOLS (see
+[documentation/template-guide.md](documentation/template-guide.md)).
+
+```sh
+cp tools/env.sh.example ~/arm-tools/env.sh   # edit the paths
+source ~/arm-tools/env.sh
+tools/flash.sh            # build, write the boot table and the image to MRAM (SW4 on SEUART)
+# SW4 to UART4, press reset; console at 115200 on the PRG USB port
+```
+
+The camera head is in the team's firmware repository (`firmware/esp32cam`, PlatformIO).
+
+To re-export a model:
+
+```sh
+python create_ai_layer.py cmsis-executorch.cbuild-mlops.yml                   # BlazeFace -> ai_layer/
+.venv/bin/python model/kws/export_kws.py cmsis-executorch.cbuild-mlops.yml    # keyword spotter -> src/kws_pte.c
+<venv with ultralytics>/bin/python model/yolo/export_yolo.py cmsis-executorch.cbuild-mlops.yml <images>
+make -C tests/host                                                            # orchestrator host test
+```
+
+At boot the board tests itself and prints `Test_result` (face) and `KWS_result` (a recorded
+"yes"). Then it runs a servo test and starts in SENTRY.
+
+## Things we learned about the E8
+
+- **Booting from MRAM without a debugger leaves SRAM0 and SRAM1 unpowered.** The template's
+  startup code zeroes SRAM0 before `main()`, so the image hangs silently. We power both
+  banks through the Secure Enclave right after the console is up
+  (`SERVICES_power_memory_req`), and startup no longer touches them
+  ([board/DevKit-E8/main.c](board/DevKit-E8/main.c)).
+- **The Ethos-U85 cannot reach the M55's DTCM.** ExecuTorch's pools have to sit in SRAM;
+  in DTCM the NPU fails with status 0x9004.
+- The UTIMER driver needs a non-NULL callback. Servo channels need compare buffering off,
+  or the duty cycle never changes.
+- Arm's quantizer does not fuse `relu6` with a convolution in this ExecuTorch version, and
+  the partitioner then splits the graph. `clamp(0, 6)` gives the same result and keeps
+  the whole network on the NPU.
+
+## Status
+
+**Works on the board:**
+- face detection on the NPU
+- camera link, servo tracking, the LCD view
+- microphones
+- standalone boot with the self-test
+
+**Built and host-tested, waiting for a board:** our DevKit failed during the hackathon.
+- keyword spotting live
+- the orchestrator
+- the JPEG camera path
+- YOLOv8 in the firmware: the model is exported, but fitting it into flash still needs a
+  larger app slot in MRAM
+
+**Next steps:**
+- Move always-on listening and motion detection to the **M55-HE + Ethos-U55** and put the
+  HP core to sleep in SENTRY.
+- Measure the power difference.
+
+## Credits and licences
+
+- The template: Arm (Apache-2.0).
+- BlazeFace: MediaPipe weights via hollance/BlazeFace-PyTorch (Apache-2.0).
+- MicroNet-M: Arm ML-Zoo (Apache-2.0).
+- Speech Commands clips: CC BY 4.0.
+- TJpgDec: ChaN (no restrictions on use).
+- **YOLOv8: Ultralytics, AGPL-3.0.**
