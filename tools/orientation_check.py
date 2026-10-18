@@ -45,9 +45,14 @@ def frames(port):
     s.reset_input_buffer()
     s.write(b"p")   # preview on: every frame also goes to USB
     buf = b""
+    last = time.time()
     try:
         while True:
             buf += s.read(s.in_waiting or 1)
+            # 'p' toggles: if a previous run left preview on, our 'p' turned it off.
+            if time.time() - last > 2:
+                s.write(b"p")
+                last = time.time()
             i = buf.find(b"WLDF")
             if i < 0:
                 buf = buf[-3:]
@@ -61,6 +66,7 @@ def frames(port):
                 continue
             while len(buf) < end:
                 buf += s.read(end - len(buf))
+            last = time.time()
             yield fmt, w, h, buf[i + HDR.size:i + HDR.size + n]
             buf = buf[end:]
     finally:
