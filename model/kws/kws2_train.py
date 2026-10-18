@@ -21,6 +21,9 @@ import kws_vocab as V  # noqa: E402
 from micronet import MicroNetM  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
+# The int8 input range of Arm's MicroNet-M (in_q: scale 0.2011, zero point -5). Training,
+# evaluation and calibration all clip to it, so the int8 program sees what training saw.
+IN_LO, IN_HI = -24.7, 26.6
 OLD = ["down", "go", "left", "no", "off", "on", "right", "stop", "up", "yes", "_silence_", "_unknown_"]
 
 
@@ -77,7 +80,7 @@ def evaluate(m, X, y, dev, bs=4096):
     preds = []
     with torch.no_grad():
         for i in range(0, len(X), bs):
-            preds.append(m(X[i:i + bs].to(dev)).argmax(1).cpu())
+            preds.append(m(X[i:i + bs].to(dev).clamp(IN_LO, IN_HI)).argmax(1).cpu())
     p = torch.cat(preds).numpy()
     per = [float((p[y == c] == c).mean()) if (y == c).any() else float("nan") for c in range(len(V.LABELS))]
     return float((p == y).mean()), per
@@ -124,7 +127,7 @@ def main():
         idx = balanced_epoch(ytr, rng)
         for b in range(0, len(idx) - a.bs + 1, a.bs):
             j = idx[b:b + a.bs]
-            x = Xtr[j].to(dev)
+            x = Xtr[j].to(dev).clamp(IN_LO, IN_HI)
             # SpecAugment-light: time mask, small feature jitter
             if rng.random() < 0.5:
                 t = int(rng.integers(0, 40))

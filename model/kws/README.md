@@ -7,8 +7,8 @@ Two models, one switch (`src/kws_model.h`, for both images):
 
 | Model | Labels | Files |
 |---|---|---|
-| **KWS v2** (default) | 10 commands: down go left no off on right stop up yes; 10 objects: person cup bottle phone laptop book backpack keyboard dog cat; home, patrol, hey_waldo; `_silence_`, `_unknown_` (25) | `src/kws_pte.c`, `he/kws_pte_he.c` |
-| MicroNet-M (`WALDO_KWS_MICRONET`) | the 10 commands, `_silence_`, `_unknown_` (12) | `src/kws_pte_micronet.c`, `he/kws_pte_he_micronet.c` |
+| **KWS v2** (opt-in: `WALDO_KWS_V2`) | 10 commands: down go left no off on right stop up yes; 10 objects: person cup bottle phone laptop book backpack keyboard dog cat; home, patrol, hey_waldo; `_silence_`, `_unknown_` (25) | `src/kws_pte.c`, `he/kws_pte_he.c` |
+| MicroNet-M (`WALDO_KWS_MICRONET`, the default) | the 10 commands, `_silence_`, `_unknown_` (12) | `src/kws_pte_micronet.c`, `he/kws_pte_he_micronet.c` |
 
 `src/kws_labels.h` (generated) holds both label sets, a per-word on/off switch and a
 per-word threshold. The orchestrator maps the words (`src/waldo/orchestrator.cpp`): an object
@@ -59,6 +59,35 @@ $PY -I model/kws/kws2_eval.py $K --weights $K/runs/r1/best.npz
 $PY model/kws/export_kws.py cmsis-executorch.cbuild-mlops.yml --weights $K/runs/r1/best.npz --calib $K/feats/val.npz
 $PY model/kws/export_kws.py cmsis-executorch.cbuild-mlops.yml --weights $K/runs/r1/best.npz --calib $K/feats/val.npz --he
 ```
+
+### Results (run r3, 2026-10-18)
+
+Held-out data only: Speech Commands test speakers (250 clips per word), 34 ElevenLabs test
+voices (incl. two clones of a team member) + 5 `say` voice names, the test part of the
+background noise. Both models int8-range inputs, the board's listening logic (`kws2_eval.py`);
+v2 with per-word thresholds chosen on the validation split (`kws2_thresholds.py`). "board" =
+speech at 500-1200 rms over 165-800 rms room noise, as measured at the DevKit's PDM mics.
+
+| | MicroNet-M (0.80) | KWS v2 |
+|---|---|---|
+| 10 commands, Speech Commands, clean | 86.7 % | 88.0 % |
+| 10 commands, Speech Commands, 10 dB SNR | 55.3 % | 74.0 % |
+| 10 commands, Speech Commands, board levels | 17.0 % | 56.6 % |
+| 10 commands, TTS voices, clean / 10 dB / board | 90.3 / 59.0 / 14.6 % | 91.2 / 74.7 / 59.1 % |
+| false triggers, ordinary talk, clean / board | 0.62 / 0.00 per min | 0.81 / 1.15 per min |
+| false triggers, near misses ("cap", "hey Walter"), clean | 7.67 per min | 4.16 per min |
+
+Per word, clean (TTS test voices; Speech Commands for dog): laptop 97, book 94, backpack 88,
+keyboard 92, dog 94 (SC 80), home 88, patrol 97, hey_waldo 58 %. Off in `kws_labels.h`
+(validation hit rate under 60 %): person (same as "no"), cup, bottle, phone, cat.
+Some commands lost a few points clean (Speech Commands: go -3, off -3, right -4, yes -3;
+TTS: off -8, on -7, up -6), inside the sampling noise for most, while every command gained
+15-50 points in noise. int8 vs float: 97.6 % top-1 agreement over all validation windows,
+100 % where the float model is at least 0.6 sure. Vela: 100 % of the operators on the NPU,
+U55-128 SRAM 120.8 KiB (HE temp pool 192 KiB), U85 114.4 KiB; program 171 KB (HE), 174 KB (HP).
+
+Not yet measured: the DevKit's own microphones. The TTS words were never spoken by a real
+person into the board; check on the board before relying on them.
 
 ## MicroNet-M (fallback)
 

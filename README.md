@@ -123,6 +123,7 @@ conversions at the inputs and outputs stay on the CPU.
 |---|---|---|---|---|---|
 | **YOLOv8n** | 28 room classes | 320x320 RGB | U85-256: 99/99 ops, 2.0 MB scratch | 3.0 MB | Ultralytics, head sliced to 28 classes by our vision lead ([model/yolo](model/yolo)) |
 | **MicroNet-M** | 10 command words | 49x10 MFCC (1 s at 16 kHz) | U55-128: 42/42 ops, 121 KB scratch (U85: 42/42) | 170 KB | Arm ML-Zoo, rebuilt in PyTorch from its TFLite weights ([model/kws](model/kws)) |
+| KWS v2 (opt-in, `src/kws_model.h`) | 10 commands + objects, home, patrol, hey_waldo | same | U55-128: 100 %, 121 KB scratch (U85: 100 %) | 171 KB | MicroNet-M fine-tuned on Speech Commands + TTS voices with room/mic augmentation ([model/kws](model/kws)) |
 | BlazeFace | faces (v1 turret, FVP test) | 128x128 gray | U85: 100 % | 200 KB | MediaPipe, first conv folded to 1 channel ([model/model.py](model/model.py)) |
 
 ## Measured and verified

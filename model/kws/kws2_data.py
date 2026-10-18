@@ -238,9 +238,16 @@ def degrade(x, rng, bank, babble_src=None, cond=None):
             if cond.get("snr") is not None:
                 nz = noise_window(bank, rng, n)
                 x = x + nz * (active_rms(x) / max(rms(nz), 1e-6)) * 10 ** (-cond["snr"] / 20)
+    # the PDM mics never give digital silence: a little noise always (and the int8 input range stays sane)
+    x = x + rng.normal(0, rng.uniform(1, 6) if cond is None else 3.0, len(x)).astype(np.float32)
     return np.clip(x, -32768, 32767).astype(np.float32)
 
 
 def silence_window(bank, rng):
     nz = noise_window(bank, rng)
     return np.clip(nz * (10 ** (rng.uniform(-70, -20) / 20) * 32767 / max(rms(nz), 1e-6)), -32768, 32767)
+
+
+def dither(x, std=3.0):
+    """Clean audio as a microphone delivers it: never exactly zero (int16 rms ~3 counts)."""
+    return (x + np.random.default_rng(len(x)).normal(0, std, len(x))).astype(np.float32)

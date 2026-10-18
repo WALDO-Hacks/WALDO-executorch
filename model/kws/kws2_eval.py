@@ -34,7 +34,7 @@ class Runner:
         out = []
         with torch.no_grad():
             for i in range(0, len(X), 4096):
-                x = torch.from_numpy(X[i:i + 4096]).unsqueeze(-1).to(self.dev)
+                x = torch.from_numpy(X[i:i + 4096]).unsqueeze(-1).to(self.dev).clamp(T.IN_LO, T.IN_HI)   # the int8 input range
                 out.append(torch.softmax(self.m(x), 1).cpu().numpy())
         return np.concatenate(out) if out else np.zeros((0, len(self.labels)))
 
@@ -64,7 +64,7 @@ def run_clips(runners, clips, cond, bank, th, seed=0):
     wins = []
     for a, tgt, tag in clips:
         x = np.concatenate([np.zeros(8000, np.float32), a, np.zeros(8000, np.float32)])
-        x = D.degrade(x, np.random.default_rng(rng.integers(1 << 31)), bank, cond=cond) if cond else x
+        x = D.degrade(x, np.random.default_rng(rng.integers(1 << 31)), bank, cond=cond) if cond else D.dither(x)
         w = windows_of(x)
         wins.append(w)
     X = np.concatenate(wins).astype(np.float32)
@@ -163,7 +163,7 @@ def main():
         stream = np.concatenate([np.concatenate([clips[i], np.zeros(int(rng.uniform(0.2, 1.0) * 16000), np.float32)]) for i in order])
         minutes = len(stream) / 16000 / 60
         for c in ("clean", "board"):
-            x = D.degrade(stream.copy(), np.random.default_rng(11), bank, cond=CONDS[c]) if CONDS[c] else stream
+            x = D.degrade(stream.copy(), np.random.default_rng(11), bank, cond=CONDS[c]) if CONDS[c] else D.dither(stream)
             heard = {}
             for name, r in runners.items():
                 heard[name] = listen(r.probs(windows_of(x)), r.words, r.th, r.labels)
