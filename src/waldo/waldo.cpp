@@ -50,6 +50,11 @@ static void st_print(uint32_t window_ms)
 }
 
 static volatile uint32_t ms;
+
+// For the on-screen status: the last word heard, frames per second, last NPU and frame time.
+static const char *heard_word;
+static uint32_t heard_ms, last_npu_us, last_frame_us;
+static float shown_fps;
 extern "C" void SysTick_Handler(void) { ms++; }
 
 uint32_t waldo_millis(void) { return ms; }
@@ -95,6 +100,7 @@ void waldo_poll(void)
             detect_stage_us(&pre, &npu, &post);
             st_add(ST_PRE, pre);
             st_add(ST_NPU, npu);
+            last_npu_us = npu;
             st_add(ST_POST, post);
             st_add(ST_TRACK, orch_us - pre - npu - post);
         } else {
@@ -104,7 +110,20 @@ void waldo_poll(void)
 
         waldo_view_draw(f, boxes, n, tracker_target_index(), orch_state());
         st_add_cyc(ST_DISPLAY, cycles() - c);
-        st_add_cyc(ST_FRAME, cycles() - cf);
+        last_frame_us = (cycles() - cf) / (SystemCoreClock / 1000000u);
+        st_add(ST_FRAME, last_frame_us);
+
+        // Frames per second over 1 s windows, and the status bands around the picture.
+        static uint32_t fps_frames, fps_t0;
+        fps_frames++;
+        if (now - fps_t0 >= 1000) {
+            shown_fps = fps_frames * 1000.0f / (now - fps_t0);
+            fps_frames = 0;
+            fps_t0 = now;
+        }
+        const struct view_status vs = {orch_state(), detect_class_name(tracker_target_class()), heard_word,
+                                       now - heard_ms, shown_fps, last_npu_us, last_frame_us};
+        waldo_view_status(&vs);
     }
     if (now - last_stats >= 2000) {
         uint32_t ok, bad, lost;
@@ -136,6 +155,8 @@ void waldo_poll(void)
     if (word >= 0) {
         printf("HEARD: %s\n", kws_label(word));
         orch_word(kws_label(word), now);
+        heard_word = kws_label(word);
+        heard_ms = now;
     }
 
     if (now - last >= 20) {

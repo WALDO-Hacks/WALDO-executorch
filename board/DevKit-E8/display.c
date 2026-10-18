@@ -33,6 +33,7 @@
 #include "RTE_Device.h"
 
 #include "Driver_CDC200.h"
+#include "font6x11.h"
 
 #define LCD_WIDTH   RTE_PANEL_HACTIVE_TIME   /* 480 */
 #define LCD_HEIGHT  RTE_PANEL_VACTIVE_LINE   /* 800 */
@@ -176,4 +177,71 @@ void board_display_box(int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t
         }
     }
     SCB_CleanDCache_by_Addr((uint32_t *) &lcd_frame[py0][0][0], (int32_t)((py1 - py0 + 1) * LCD_WIDTH * LCD_BPP));
+}
+
+/*
+  WALDO: fill a rectangle of the panel (panel pixels, clipped).
+*/
+void board_display_fill(int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b)
+{
+    if (!display_ready) {
+        return;
+    }
+    int x1 = x + w, y1 = y + h;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x1 > LCD_WIDTH) x1 = LCD_WIDTH;
+    if (y1 > LCD_HEIGHT) y1 = LCD_HEIGHT;
+    if (x >= x1 || y >= y1) {
+        return;
+    }
+    for (int yy = y; yy < y1; yy++) {
+        for (int xx = x; xx < x1; xx++) {
+            uint8_t *d = &lcd_frame[yy][xx][0];
+            d[0] = b; d[1] = g; d[2] = r;
+        }
+    }
+    SCB_CleanDCache_by_Addr((uint32_t *) &lcd_frame[y][0][0], (int32_t)((y1 - y) * LCD_WIDTH * LCD_BPP));
+}
+
+/*
+  WALDO: write ASCII text at panel pixel (x, y), top left, in a 6x11 font scaled up by
+  scale; pixels outside the glyphs are left alone. Returns the x after the last character.
+*/
+int board_display_text(int x, int y, const char *text, uint8_t r, uint8_t g, uint8_t b, int scale)
+{
+    if (!display_ready || scale < 1) {
+        return x;
+    }
+    const int y_end = y + FONT_H * scale;
+    for (; *text; text++, x += FONT_W * scale) {
+        const unsigned c = (unsigned char) *text;
+        if (c < 32 || c > 126 || x + FONT_W * scale > LCD_WIDTH) {
+            continue;
+        }
+        for (int row = 0; row < FONT_H; row++) {
+            const uint8_t bits = font6x11[c - 32][row];
+            for (int col = 0; col < FONT_W; col++) {
+                if (!(bits >> (FONT_W - 1 - col) & 1)) {
+                    continue;
+                }
+                for (int dy = 0; dy < scale; dy++) {
+                    const int yy = y + row * scale + dy;
+                    if (yy < 0 || yy >= LCD_HEIGHT) {
+                        continue;
+                    }
+                    uint8_t *d = &lcd_frame[yy][x + col * scale][0];
+                    for (int dx = 0; dx < scale; dx++, d += LCD_BPP) {
+                        d[0] = b; d[1] = g; d[2] = r;
+                    }
+                }
+            }
+        }
+    }
+    if (y < 0) y = 0;
+    if (y < LCD_HEIGHT) {
+        SCB_CleanDCache_by_Addr((uint32_t *) &lcd_frame[y][0][0],
+                                (int32_t)(((y_end < LCD_HEIGHT ? y_end : LCD_HEIGHT) - y) * LCD_WIDTH * LCD_BPP));
+    }
+    return x;
 }

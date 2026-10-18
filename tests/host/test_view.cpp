@@ -11,6 +11,13 @@
 
 extern "C" void display_host_save(const char *path);
 
+// The orchestrator's state names (its other code isn't needed for drawing).
+const char *orch_state_name(enum orch_state s)
+{
+    static const char *const names[] = {"PARKED", "SENTRY", "TRACK", "HOLD"};
+    return names[s];
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 5) {
@@ -37,7 +44,10 @@ int main(int argc, char **argv)
     std::vector<det_box> boxes;
     for (int i = 5; i + 3 < argc; i += 4)
         boxes.push_back({atoi(argv[i]), atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3]), 1.0f});
-    waldo_view_draw(&f, boxes.data(), (int)boxes.size(), 0, (enum orch_state)atoi(argv[3]));
+    const enum orch_state st = (enum orch_state)atoi(argv[3]);
+    waldo_view_draw(&f, boxes.data(), (int)boxes.size(), 0, st);
+    const view_status vs = {st, "person", "left", 500, 18.4f, 29100, 47300};
+    waldo_view_status(&vs);
     display_host_save(argv[4]);
     printf("frame %ux%u colour %ux%u -> %s\n", f.width, f.height, f.rgb_w, f.rgb_h, argv[4]);
     return 0;

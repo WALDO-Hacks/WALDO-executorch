@@ -81,7 +81,10 @@ bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
     }
     target_index = pick;
     st.cx = b[pick].x + b[pick].w / 2.0f;
-    st.cy = b[pick].y + b[pick].h / 2.0f;
+    // A flashlight shouldn't shine in people's eyes: aim a person at 65% of the way down the
+    // box (the chest in a head-and-shoulders view, the waist in a full-body one); objects
+    // at their centre.
+    st.cy = b[pick].y + b[pick].h * (b[pick].cls == 0 ? 0.65f : 0.5f);
     st.w = b[pick].w;
     st.has_target = true;
     st.at_home = false;
