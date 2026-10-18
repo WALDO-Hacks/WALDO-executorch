@@ -48,8 +48,13 @@ static ARM_DRIVER_CDC200 *CDCdrv = &Driver_CDC200;
 
 /* RGB888 frame buffer, 480 x 800 x 3 = 1152000 bytes, in bulk SRAM (NPU and
    display DMA accessible); the layer's linker scripts route the section. */
+#ifdef WALDO_NPU_SRAM0_ONLY   /* SRAM0 holds both of YOLO's NPU pools: the frame goes to SRAM1 */
+#define LCD_FRAME_SECTION ".bss.sram1.lcd_frame"
+#else
+#define LCD_FRAME_SECTION ".bss.lcd_frame_buf"
+#endif
 static uint8_t lcd_frame[LCD_HEIGHT][LCD_WIDTH][LCD_BPP]
-    __attribute__((section(".bss.lcd_frame_buf"), aligned(32)));
+    __attribute__((section(LCD_FRAME_SECTION), aligned(32)));
 
 static int display_ready = 0;
 

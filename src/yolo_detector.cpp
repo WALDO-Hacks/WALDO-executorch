@@ -39,10 +39,17 @@ constexpr float kNmsIou = 0.7f;   // the team's evaluation setting
 static_assert(waldo::kNumClasses == YOLO_CLASSES, "class count");
 
 // Measured for this export: 1,536,000 B planned (input + head maps), 2005 KiB Vela scratch.
+// Fallback if the NPU turns out not to reach SRAM1: build with WALDO_NPU_SRAM0_ONLY and
+// both pools sit in SRAM0 (the LCD frame buffer moves to SRAM1 to make room).
 constexpr size_t kMethodPool = 0x1A0000;   // 1.6 MB, SRAM0
-constexpr size_t kTempPool = 0x204000;     // 2.0 MB, SRAM1
+constexpr size_t kTempPool = 0x204000;     // 2.0 MB, SRAM1 (SRAM0 with WALDO_NPU_SRAM0_ONLY)
+#ifdef WALDO_NPU_SRAM0_ONLY
+#define YOLO_TEMP_SECTION ".bss.ai_pool"
+#else
+#define YOLO_TEMP_SECTION ".bss.sram1.yolo_temp"
+#endif
 alignas(16) uint8_t g_method_pool[kMethodPool] __attribute__((section(".bss.ai_pool")));
-alignas(16) uint8_t g_temp_pool[kTempPool] __attribute__((section(".bss.sram1.yolo_temp")));
+alignas(16) uint8_t g_temp_pool[kTempPool] __attribute__((section(YOLO_TEMP_SECTION)));
 alignas(16) float g_input[3 * kSize * kSize] __attribute__((section(".bss.sram1.yolo_input")));
 
 std::unique_ptr<EmbeddedModule> g_module;
