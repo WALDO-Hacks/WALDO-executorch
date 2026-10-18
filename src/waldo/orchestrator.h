@@ -8,7 +8,8 @@
 //   HOLD    "stop": the turret freezes but keeps looking; "go" resumes
 //
 // Voice: on/go wake or resume, stop holds, off parks; left/right/up/down nudge the turret,
-// or while tracking switch to the next target in that direction; no drops the target.
+// or while tracking switch to the nearest thing in that direction (a person or an object,
+// which it then follows); no drops the target and goes back to people.
 #pragma once
 #include <stdint.h>
 

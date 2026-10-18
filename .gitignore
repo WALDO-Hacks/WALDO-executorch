@@ -88,3 +88,5 @@ tests/host/test_orchestrator
 yolov8n.pt
 tests/host/test_view
 tests/host/*.ppm
+
+!model/yolo/yolo.pte

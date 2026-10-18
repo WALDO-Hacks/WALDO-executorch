@@ -14,6 +14,7 @@
 // ---- scripted detector ----
 static det_box script[4];
 static int script_n, detect_calls;
+const char *detect_class_name(int cls) { return cls == 14 ? "cup" : cls == 0 ? "person" : "?"; }
 int detect(const cam_frame *, det_box *out, int max)
 {
     detect_calls++;
@@ -62,7 +63,7 @@ int main()
     CHECK(detect_calls == 5);
 
     // A face right of centre -> TRACK, and the turret pans right (negative pan).
-    script[0] = {110, 50, 20, 20, 0.9f};
+    script[0] = {110, 50, 20, 20, 0.9f, 0};
     script_n = 1;
     step(8);
     CHECK(orch_state() == ORCH_TRACK);
@@ -83,14 +84,34 @@ int main()
     CHECK(orch_state() == ORCH_TRACK);
 
     // Two faces: "left" switches to the left one and the turret turns toward it.
-    script[0] = {85, 50, 16, 16, 0.9f};   // the current target, near centre
-    script[1] = {20, 50, 16, 16, 0.9f};   // to its left
+    script[0] = {85, 50, 16, 16, 0.9f, 0};    // the person being followed, near centre
+    script[1] = {20, 50, 16, 16, 0.9f, 14};   // a cup to its left
     script_n = 2;
     step(4);
     float before = motion_target(AXIS_PAN);
     orch_word("left", now);
     step(1);
     CHECK(motion_target(AXIS_PAN) > before + 2);   // +pan turns left
+
+    // It now follows the cup, even though a person is in view: the person alone moving
+    // right doesn't pull it back.
+    script[0] = {130, 50, 16, 16, 0.9f, 0};
+    script[1] = {60, 50, 16, 16, 0.9f, 14};   // the cup, now left of centre
+    float pan_cup = motion_target(AXIS_PAN);
+    step(3);
+    CHECK(motion_target(AXIS_PAN) > pan_cup);  // still turning left, toward the cup
+
+    // "no" -> back to people: it turns right toward the person.
+    orch_word("no", now);
+    pan_cup = motion_target(AXIS_PAN);
+    step(3);
+    CHECK(motion_target(AXIS_PAN) < pan_cup);
+
+    // Only objects in view (no person): not a target, so TRACK times out to SENTRY.
+    script[0] = {60, 50, 16, 16, 0.9f, 15};   // a chair
+    script_n = 1;
+    step(60);
+    CHECK(orch_state() == ORCH_SENTRY);
 
     // Target gone for 5 s -> SENTRY, looking straight ahead.
     script_n = 0;
@@ -109,7 +130,7 @@ int main()
     CHECK(orch_state() == ORCH_PARKED);
     CHECK(motion_target(AXIS_TILT) < -45);
     detect_calls = 0;
-    script[0] = {70, 50, 20, 20, 0.9f};
+    script[0] = {70, 50, 20, 20, 0.9f, 0};
     script_n = 1;
     step(10);
     orch_word("up", now);

@@ -93,7 +93,7 @@ void waldo_poll(void)
         const uint32_t orch_us = (cycles() - cf) / (SystemCoreClock / 1000000u);
         if (n >= 0) {
             uint32_t pre, npu, post;
-            face_detector_stage_us(&pre, &npu, &post);
+            detect_stage_us(&pre, &npu, &post);
             st_add(ST_PRE, pre);
             st_add(ST_NPU, npu);
             st_add(ST_POST, post);

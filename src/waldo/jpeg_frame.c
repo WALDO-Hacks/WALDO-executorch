@@ -41,7 +41,8 @@ int jpeg_frame_decode(const uint8_t *jpg, uint32_t len, uint8_t *rgb, uint8_t *g
     JDEC jd;
     dev_t_ d = {jpg, len, 0, rgb, 0};
     if (jd_prepare(&jd, in, work, sizeof(work), &d) != JDR_OK) return -1;
-    if (jd.width > JPEG_MAX_W || jd.height > JPEG_MAX_H) return -2;
+    if (jd.width > JPEG_MAX_SIDE || jd.height > JPEG_MAX_SIDE ||
+        (uint32_t)jd.width * jd.height > (uint32_t)JPEG_MAX_W * JPEG_MAX_H) return -2;
     d.w = jd.width;
     if (jd_decomp(&jd, out, 0) != JDR_OK) return -3;
     *w = jd.width;

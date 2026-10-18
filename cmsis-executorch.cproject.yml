@@ -52,6 +52,10 @@ project:
         - file: ./src/waldo/kws_mfcc.c
         - file: ./src/kws.cpp
         - file: ./src/kws_pte.c
+        - file: ./src/yolo_detector.cpp
+        - file: ./src/yolo_pte.S
+          define:
+            - YOLO_PTE_PATH: \"$ProjectDir()$/model/yolo/yolo.pte\"
 
   layers:
     - layer: $Board-Layer$

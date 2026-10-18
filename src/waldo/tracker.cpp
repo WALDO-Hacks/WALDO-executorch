@@ -14,6 +14,14 @@ static struct {
 
 static int target_index = -1;
 static int switch_dir;   // pending tracker_switch()
+static int target_cls = TRACK_PEOPLE;
+
+static bool is_target_class(int cls)
+{
+    if (cls == DET_MOTION) return true;
+    if (target_cls == TRACK_PEOPLE) return cls == 0 || cls == DET_FACE;   // YOLO person, BlazeFace
+    return cls == target_cls;
+}
 
 static struct {
     bool has_target, at_home = true;
@@ -22,18 +30,14 @@ static struct {
     float err_pan, err_tilt;
 } st;
 
-void tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32_t now)
+bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32_t now)
 {
-    if (n == 0) {
-        target_index = -1;
-        st.has_target = false;
-        return;   // what to do about a lost target is the orchestrator's call
-    }
-
-    // Stay on the target we were following if it's still there, else take the biggest.
-    int pick = 0;
+    // Stay on the target we were following if it's still there, else take the biggest
+    // box of the target class.
+    int pick = -1;
     float best = -1;
     for (int i = 0; i < n; i++) {
+        if (!is_target_class(b[i].cls)) continue;
         float cx = b[i].x + b[i].w / 2.0f, cy = b[i].y + b[i].h / 2.0f;
         float score = (float)b[i].w * b[i].h;
         if (st.has_target && hypotf(cx - st.cx, cy - st.cy) < 1.5f * st.w + 8) score *= 4;
@@ -43,8 +47,8 @@ void tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
         }
     }
 
-    // A requested switch: the nearest other box in that direction, if there is one.
-    if (switch_dir && st.has_target) {
+    // A requested switch: the nearest other box in that direction, of any class.
+    if (switch_dir && st.has_target && n > 0) {
         int alt = -1;
         float alt_d = 1e9f;
         for (int i = 0; i < n; i++) {
@@ -63,11 +67,17 @@ void tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
         }
         if (alt >= 0) {
             pick = alt;
-            printf("track: switched target\n");
+            target_cls = b[alt].cls;
+            printf("track: switched to a %s\n", detect_class_name(target_cls));
         } else {
             printf("track: no other target that way\n");
         }
         switch_dir = 0;
+    }
+    if (pick < 0) {
+        target_index = -1;
+        st.has_target = false;
+        return false;   // what to do about a lost target is the orchestrator's call
     }
     target_index = pick;
     st.cx = b[pick].x + b[pick].w / 2.0f;
@@ -88,6 +98,7 @@ void tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
     st.err_tilt = -ey * cfg.sign_tilt;
     if (fabsf(st.err_pan) > cfg.deadband) motion_nudge(AXIS_PAN, cfg.kp * st.err_pan);
     if (fabsf(st.err_tilt) > cfg.deadband) motion_nudge(AXIS_TILT, cfg.kp * st.err_tilt);
+    return true;
 }
 
 void tracker_print(void)
@@ -101,3 +112,12 @@ void tracker_print(void)
 int tracker_target_index(void) { return target_index; }
 
 void tracker_switch(int dir) { switch_dir = dir; }
+
+void tracker_reset_target(void)
+{
+    target_cls = TRACK_PEOPLE;
+    st.has_target = false;
+    target_index = -1;
+}
+
+int tracker_target_class(void) { return target_cls == TRACK_PEOPLE ? 0 : target_cls; }

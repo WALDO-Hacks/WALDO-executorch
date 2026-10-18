@@ -29,6 +29,9 @@
 
 #include "kws.hpp"
 #include "test_kws.h"
+#include "test_yolo.h"
+#include "waldo/jpeg_frame.h"
+#include "yolo_detector.hpp"
 #include "waldo/kws_mfcc.h"
 #include "waldo/waldo.h"
 
@@ -49,6 +52,31 @@ static bool kws_self_test() {
   const bool pass = best >= 0 && std::string_view(kws_label(best)) == "yes" && err < 0.05f;
   printf("KWS_result: %s\n", pass ? "PASS" : "FAIL");
   return pass;
+}
+
+// Object detector self-test: a photo of people, through the same JPEG decoder as camera
+// frames, then YOLOv8n on the NPU must find at least one person.
+static bool yolo_self_test() {
+  static uint8_t rgb[240 * 320 * 3] __attribute__((section(".bss.sram1.yolo_test")));
+  uint16_t w, h;
+  if (jpeg_frame_decode(test_yolo_jpg, sizeof(test_yolo_jpg), rgb, nullptr, &w, &h) != 0) {
+    printf("YOLO self-test: JPEG decode failed\nYOLO_result: FAIL\n");
+    return false;
+  }
+  yolo_box b[8];
+  const int n = yolo_detect_rgb(rgb, w, h, 0.35f, b, 8);
+  uint32_t pre, npu, post;
+  yolo_stage_us(&pre, &npu, &post);
+  int people = 0;
+  printf("YOLO self-test: %d detection(s) in %ux%u, letterbox %lu us, NPU %lu us, decode %lu us\n", n, w, h,
+         static_cast<unsigned long>(pre), static_cast<unsigned long>(npu), static_cast<unsigned long>(post));
+  for (int i = 0; i < n; i++) {
+    printf("  %s %.2f at x %.0f y %.0f w %.0f h %.0f\n", yolo_class_name(b[i].cls), (double)b[i].score,
+           (double)b[i].x, (double)b[i].y, (double)b[i].w, (double)b[i].h);
+    people += b[i].cls == YOLO_PERSON;
+  }
+  printf("YOLO_result: %s\n", people > 0 ? "PASS" : "FAIL");
+  return people > 0;
 }
 #endif
 
@@ -77,6 +105,11 @@ extern "C" int app_main(void) {
     kws_self_test();
   } else {
     printf("keyword spotter init failed\n");
+  }
+  if (yolo_init()) {
+    yolo_self_test();
+  } else {
+    printf("object detector init failed\n");
   }
   if (waldo_init() == 0) {
     waldo_servo_test();

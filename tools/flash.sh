@@ -19,7 +19,7 @@ cat > "$SETOOLS/build/config/waldo.json" <<JSON
   "A32_APP":  {"disabled": false, "binary": "a32_stub_0.bin", "version": "1.0.0", "signed": true,
                "loadAddress": "0x02000000", "cpu_id": "A32_0", "flags": ["load", "boot"]},
   "HP_APP":   {"disabled": false, "binary": "waldo.bin", "version": "1.0.0", "signed": true,
-               "cpu_id": "M55_HP", "flags": ["boot"], "mramAddress": "0x80200000"},
+               "cpu_id": "M55_HP", "flags": ["boot"], "mramAddress": "0x80080000"},
   "HE_APP":   {"disabled": false, "binary": "m55_stub_he.bin", "version": "1.0.0", "signed": true,
                "loadAddress": "0x58000000", "cpu_id": "M55_HE", "flags": ["load", "boot"]}
 }

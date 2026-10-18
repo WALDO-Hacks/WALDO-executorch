@@ -42,6 +42,7 @@ void enter(enum orch_state s, uint32_t now)
     } else if (s == ORCH_SENTRY) {
         motion_set(AXIS_PAN, 0);
         motion_set(AXIS_TILT, 0);
+        tracker_reset_target();   // back to looking for people
         last_move_ms = now;
     } else if (s == ORCH_HOLD) {
         // Freeze where the turret is now, not where it was heading.
@@ -120,7 +121,7 @@ void orch_frame(const struct cam_frame *f, uint32_t now, struct det_box *boxes, 
         if (motion_seen(f, now, &mx, &my)) {
             n_motion++;
             // Turn toward the movement; the detector then finds what moved.
-            struct det_box m = {(int)mx - 4, (int)my - 4, 8, 8, 1.0f};
+            struct det_box m = {(int)mx - 4, (int)my - 4, 8, 8, 1.0f, DET_MOTION};
             tracker_update(&m, 1, f->width, f->height, now);
             last_move_ms = now;
             printf("orch: motion at %.0f,%.0f\n", (double)mx, (double)my);
@@ -132,14 +133,14 @@ void orch_frame(const struct cam_frame *f, uint32_t now, struct det_box *boxes, 
     *n_out = n;
     if (state == ORCH_HOLD) return;   // looks, doesn't move
 
-    if (n > 0) {
+    // Only a box of the target class counts (people, until "left"/"right" picks an
+    // object): a chair in the background must not keep WALDO busy.
+    if (tracker_update(boxes, n, f->width, f->height, now)) {
         last_target_ms = now;
-        if (state == ORCH_SENTRY) enter(ORCH_TRACK, now);
-        tracker_update(boxes, n, f->width, f->height, now);
         last_move_ms = now;
-    } else if (state == ORCH_TRACK) {
-        tracker_update(boxes, 0, f->width, f->height, now);
-        if (now - last_target_ms > kLostToSentryMs) enter(ORCH_SENTRY, now);
+        if (state == ORCH_SENTRY) enter(ORCH_TRACK, now);
+    } else if (state == ORCH_TRACK && now - last_target_ms > kLostToSentryMs) {
+        enter(ORCH_SENTRY, now);
     }
 }
 
@@ -153,7 +154,7 @@ void orch_word(const char *w, uint32_t now)
     } else if (!strcmp(w, "stop")) {
         if (state != ORCH_PARKED) enter(ORCH_HOLD, now);
     } else if (!strcmp(w, "no")) {
-        if (state == ORCH_TRACK) tracker_switch(TRACK_SWITCH_ANY);
+        tracker_reset_target();   // drop what it follows, back to people
     } else {
         int dir = !strcmp(w, "left") ? TRACK_SWITCH_LEFT : !strcmp(w, "right") ? TRACK_SWITCH_RIGHT
                 : !strcmp(w, "up") ? TRACK_SWITCH_UP : !strcmp(w, "down") ? TRACK_SWITCH_DOWN : 0;
@@ -173,6 +174,7 @@ void orch_word(const char *w, uint32_t now)
 
 void orch_print(uint32_t now)
 {
-    printf("orch: %s for %lu s, %lu motion events\n", orch_state_name(state),
-           (unsigned long)((now - state_since) / 1000), (unsigned long)n_motion);
+    printf("orch: %s for %lu s, following %s, %lu motion events\n", orch_state_name(state),
+           (unsigned long)((now - state_since) / 1000), detect_class_name(tracker_target_class()),
+           (unsigned long)n_motion);
 }

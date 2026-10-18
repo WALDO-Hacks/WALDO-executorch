@@ -22,15 +22,15 @@
 //   <o> RTSS HE Region size [bytes] <0x0-0x00580000:8>
 //   <i> Defines size of RTSS HE application memory region.
 //   <i> Default: 0x00200000
-#define APP_MRAM_HE_SIZE       0x00200000
+#define APP_MRAM_HE_SIZE       0x00080000   // WALDO: 512 KB (was 2 MB), room for the HP app + YOLO
 //   <o> RTSS HP Base address <0x80000000-0x8057FFFF:8>
 //   <i> Defines base address of RTSS HP application memory region.
 //   <i> Default: 0x80000000
-#define APP_MRAM_HP_BASE       0x80200000
+#define APP_MRAM_HP_BASE       0x80080000   // WALDO: was 0x80200000
 //   <o> RTSS HP Region size [bytes] <0x0-0x00580000:8>
 //   <i> Defines size of RTSS HP application memory region.
 //   <i> Default: 0x00200000
-#define APP_MRAM_HP_SIZE       0x00200000
+#define APP_MRAM_HP_SIZE       0x00480000   // WALDO: 4.5 MB (was 2 MB): YOLOv8n alone is 3 MB
 // </h>
 
 // <h>MRAM User Configuration
@@ -38,11 +38,11 @@
 // <h> MRAM User Region
 //   <o> User Base address <0x80000000-0x8057FFFF:8>
 //   <i> Defines base address of MRAM user region
-#define APP_MRAM_USER_BASE   0x80400000
+#define APP_MRAM_USER_BASE   0x80500000   // WALDO: was 0x80400000
 
 //   <o> User Region size [bytes] <0x0-0x00580000:8>
 //   <i> Defines size of MRAM user region
-#define APP_MRAM_USER_SIZE    0x00180000   // 1.5 MB
+#define APP_MRAM_USER_SIZE    0x00080000   // WALDO: 512 KB (was 1.5 MB)
 
 // Application executable MRAM region (before USER area)
 #define APP_CODE_MRAM_SIZE  (APP_MRAM_USER_BASE - APP_MRAM_HP_BASE)

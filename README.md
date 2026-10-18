@@ -84,11 +84,13 @@ stateDiagram-v2
 | off | park |
 | on / go | wake up or resume |
 | stop | hold still |
-| left / right / up / down | while tracking: **switch to the next target in that direction**; otherwise: nudge the turret 10° |
-| no | drop the current target |
+| left / right / up / down | while tracking: **switch to the nearest person or object in that direction, and follow that kind of thing** (say "right" to move from a person to the cup beside them); otherwise: nudge the turret 10° |
+| no | drop the current target, back to following people |
 
-The screen shows the camera view with boxes on what WALDO sees (the target in green) and
-a bar for the state: red PARKED, blue SENTRY, green TRACK, yellow HOLD.
+WALDO follows **people** by default (YOLOv8 on colour frames; BlazeFace faces as the
+fallback on grayscale frames). The screen shows the camera view with boxes on what it sees
+(the target green, other people yellow, objects cyan) and a bar for the state: red PARKED,
+blue SENTRY, green TRACK, yellow HOLD.
 
 ## The models
 
@@ -168,8 +170,8 @@ python create_ai_layer.py cmsis-executorch.cbuild-mlops.yml                   # 
 make -C tests/host                                                            # orchestrator host test
 ```
 
-At boot the board tests itself and prints `Test_result` (face) and `KWS_result` (a recorded
-"yes"). Then it runs a servo test and starts in SENTRY.
+At boot the board tests itself and prints `Test_result` (face), `KWS_result` (a recorded
+"yes") and `YOLO_result` (a photo of people). Then it runs a servo test and starts in SENTRY.
 
 ## Things we learned about the E8
 
@@ -198,8 +200,9 @@ At boot the board tests itself and prints `Test_result` (face) and `KWS_result` 
 - keyword spotting live
 - the orchestrator
 - the JPEG camera path
-- YOLOv8 in the firmware: the model is exported, but fitting it into flash still needs a
-  larger app slot in MRAM
+- YOLOv8 in the firmware (branch `yolo`): the app's MRAM slot grows to 4.5 MB and the HE
+  slot shrinks to 512 KB; the model is embedded as is (`src/yolo_pte.S`); its pools sit in
+  SRAM0 and SRAM1; a boot self-test runs it on a photo of people
 
 **Next steps:**
 - Move always-on listening and motion detection to the **M55-HE + Ethos-U55** and put the
