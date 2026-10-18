@@ -34,6 +34,14 @@ void orch_word(const char *word, uint32_t now_ms);
 // Track this YOLO class (a command by name: "track cup"; 0 = people). It is kept until
 // another is chosen. Ignored while PARKED. In SENTRY the patrol goes looking for it.
 void orch_track_class(int cls, uint32_t now_ms);
+// Wake word ("Hey Waldo"). When required (set by the firmware once the HE reports its wake
+// detector is running), a voice command is acted on only while the turret is listening:
+// orch_wake() opens a listening window of 5 s that every accepted command renews. "stop"
+// and "off" always work, so the turret can be stopped without the wake word. When not
+// required (the default) every heard word acts, as before.
+void orch_wake(uint32_t now_ms);
+void orch_set_wake_required(bool on);
+bool orch_listening(uint32_t now_ms);   // for the screen: a command would be accepted now
 // Hold target (default on): a target that is lost stays the target, and TRACK is not left
 // for SENTRY. Off = the original behaviour (lost for 5 s -> SENTRY, back to people).
 void orch_set_hold_target(bool on);

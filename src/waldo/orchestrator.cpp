@@ -50,6 +50,10 @@ struct {
     uint32_t looks, yolo_looks;
 } patrol;
 
+constexpr uint32_t kListenMs = 5000;         // listening window after the wake word; each command renews it
+bool wake_required = false;                  // commands only work after the wake word (see orchestrator.h)
+bool listening;
+uint32_t listen_until;
 bool hold_target = true;                     // a lost target stays the target (see orchestrator.h)
 enum orch_state state = ORCH_SENTRY;
 enum orch_state before_hold = ORCH_SENTRY;   // "go" after "stop" goes back to it
@@ -305,6 +309,17 @@ void orch_tick(uint32_t now)
 void orch_word(const char *w, uint32_t now)
 {
     printf("orch: heard \"%s\" in %s\n", w, orch_state_name(state));
+    if (wake_required) {
+        const bool safety = !strcmp(w, "stop") || !strcmp(w, "off");   // never behind the wake word
+        if (!safety && !orch_listening(now)) {
+            printf("orch: ignored (say \"Hey Waldo\" first)\n");
+            return;
+        }
+        if (!safety) {   // an accepted command keeps the window open for the next one; a safety word neither opens nor renews it
+            listen_until = now + kListenMs;
+            listening = true;
+        }
+    }
     if (!strcmp(w, "off")) {
         enter(ORCH_PARKED, now);
     } else if (!strcmp(w, "on") || !strcmp(w, "go")) {
@@ -333,6 +348,26 @@ void orch_word(const char *w, uint32_t now)
             last_move_ms = now;
         }
     }
+}
+
+void orch_wake(uint32_t now)
+{
+    listen_until = now + kListenMs;
+    listening = true;
+    printf("orch: wake word, listening for %lu s\n", (unsigned long)(kListenMs / 1000));
+}
+
+void orch_set_wake_required(bool on)
+{
+    if (on != wake_required) printf("orch: wake word %s\n", on ? "required" : "not required");
+    wake_required = on;
+}
+
+bool orch_listening(uint32_t now)
+{
+    if (!wake_required) return true;
+    if (listening && (int32_t)(listen_until - now) <= 0) listening = false;
+    return listening;
 }
 
 void orch_set_hold_target(bool on) { hold_target = on; }

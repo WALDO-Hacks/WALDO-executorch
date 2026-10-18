@@ -219,6 +219,45 @@ int main()
     CHECK(orch_state() == ORCH_SENTRY && tracker_target_class() == 14);
     orch_track_class(0, now);
 
+    // ---- wake word: commands act only while listening; "stop" and "off" always work ----
+    script_n = 0;
+    CHECK(orch_listening(now));                 // not required (the default): always listening
+    orch_set_wake_required(true);
+    CHECK(!orch_listening(now));
+    orch_word("stop", now);                     // safety word: no wake word needed
+    CHECK(orch_state() == ORCH_HOLD);
+    orch_word("go", now);                       // ignored: nobody said "Hey Waldo"
+    CHECK(orch_state() == ORCH_HOLD);
+    orch_wake(now);
+    CHECK(orch_listening(now));
+    orch_word("go", now);                       // now accepted
+    CHECK(orch_state() == ORCH_SENTRY);
+    now += 6000;                                // the window closes after 5 s
+    CHECK(!orch_listening(now));
+    float tilt_w = motion_target(AXIS_TILT);
+    orch_word("up", now);
+    CHECK(fabsf(motion_target(AXIS_TILT) - tilt_w) < 0.01f);    // ignored
+    orch_wake(now);
+    now += 4000;
+    orch_word("up", now);                       // accepted, and renews the window
+    CHECK(motion_target(AXIS_TILT) > tilt_w + 5);
+    now += 4000;                                // 4 s after the command: still open
+    CHECK(orch_listening(now));
+    now += 2000;                                // 6 s after it: closed
+    CHECK(!orch_listening(now));
+    orch_word("off", now);                      // always works
+    CHECK(orch_state() == ORCH_PARKED);
+    orch_word("on", now);                       // ignored
+    CHECK(orch_state() == ORCH_PARKED);
+    orch_wake(now);
+    orch_word("on", now);
+    CHECK(orch_state() == ORCH_SENTRY);
+    orch_set_wake_required(false);              // back to every word acts
+    CHECK(orch_listening(now + 100000));
+    orch_word("off", now);
+    orch_word("on", now);
+    CHECK(orch_state() == ORCH_SENTRY);
+
     // "stop" in SENTRY then "go": back to SENTRY (nothing to resume).
     script_n = 0;
     orch_word("stop", now);
