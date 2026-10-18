@@ -101,3 +101,43 @@ void ethos_setup (void) {
     printf("\tCmd stream: v%u\n", hw_info.cfg.cmd_stream_version);
   }
 }
+
+/* WALDO (fvp-sim): time the NPU. These driver hooks bracket only the command stream
+   (start to completion interrupt), like board/DevKit-E8/ethos_setup.c: the M55's DWT
+   cycle counter for ethos_npu_cycles_take(), and the Ethos-U PMU cycle counter (the
+   NPU's own clock, which the FVP models) for ethos_npu_pmu_cycles_take(). */
+#include "pmu_ethosu.h"
+
+static volatile uint32_t npu_t0, npu_cycles;
+static volatile uint64_t npu_pmu_cycles;
+
+void ethosu_inference_begin(struct ethosu_driver *drv, void *user_arg)
+{
+  (void)user_arg;
+  ETHOSU_PMU_Enable(drv);
+  ETHOSU_PMU_CNTR_Enable(drv, ETHOSU_PMU_CCNT_Msk);
+  ETHOSU_PMU_CYCCNT_Reset(drv);
+  npu_t0 = DWT->CYCCNT;
+}
+
+void ethosu_inference_end(struct ethosu_driver *drv, void *user_arg)
+{
+  (void)user_arg;
+  npu_cycles += DWT->CYCCNT - npu_t0;
+  npu_pmu_cycles += ETHOSU_PMU_Get_CCNTR(drv);
+  ETHOSU_PMU_Disable(drv);
+}
+
+uint32_t ethos_npu_cycles_take(void)
+{
+  uint32_t c = npu_cycles;
+  npu_cycles = 0;
+  return c;
+}
+
+uint64_t ethos_npu_pmu_cycles_take(void)
+{
+  uint64_t c = npu_pmu_cycles;
+  npu_pmu_cycles = 0;
+  return c;
+}

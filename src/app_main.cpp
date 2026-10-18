@@ -24,7 +24,9 @@
 #include "model_pte.h"
 #include "test_face.h"
 #endif
-#ifdef WALDO_HW
+// WALDO_FVP_TURRET (fvp-sim branch): the FVP also runs the turret's two self-tests below,
+// YOLOv8n and the U85 KWS, on the Corstone-320's Ethos-U85.
+#if defined(WALDO_HW) || defined(WALDO_FVP_TURRET)
 #include <cmath>
 
 #include "RTE_Components.h"
@@ -38,10 +40,20 @@
 #include "yolo_detector.hpp"
 extern "C" const unsigned long yolo_pte_size;
 #include "waldo/kws_mfcc.h"
+#endif
+#ifdef WALDO_FVP_TURRET
+#include "waldo/mic.h"
+extern "C" uint64_t ethos_npu_pmu_cycles_take(void);   // board/Corstone-320/ethos_setup.c
+// No microphone on the FVP: kws_listen() links against this but is never called.
+extern "C" uint32_t mic_read(int16_t *, uint32_t) { return 0; }
+#endif
+#ifdef WALDO_HW
 #include "waldo/waldo.h"
 #ifdef WALDO_TWO_BRAIN
 #include "waldo/brain_hp.h"
 #endif
+#endif
+#if defined(WALDO_HW) || defined(WALDO_FVP_TURRET)
 
 // Keyword spotter self-test: MFCCs of a recorded "yes" on the M55 (checked against the
 // ones Python computed at export time), then MicroNet on the NPU must say "yes".
@@ -139,8 +151,32 @@ extern "C" int app_main(void) {
            (double)faces[i].y, (double)faces[i].w, (double)faces[i].h, (double)faces[i].score);
   }
   printf("Test_result: %s\n", n == 1 ? "PASS" : "FAIL");
+#ifdef WALDO_FVP_TURRET
+  printf("WALDO turret models on the FVP: MicroNet KWS (%lu B), YOLOv8n (%lu B)\n",
+         static_cast<unsigned long>(kws_pte_size), static_cast<unsigned long>(yolo_pte_size));
+  ethos_npu_pmu_cycles_take();
+  if (kws_init()) {
+    kws_self_test();
+    printf("KWS NPU PMU cycles: %lu\n", static_cast<unsigned long>(ethos_npu_pmu_cycles_take()));
+  } else {
+    printf("keyword spotter init failed\nKWS_result: FAIL\n");
+  }
+  if (yolo_init()) {
+    yolo_self_test();
+    printf("YOLO NPU PMU cycles: %lu\n", static_cast<unsigned long>(ethos_npu_pmu_cycles_take()));
+  } else {
+    printf("object detector init failed\nYOLO_result: FAIL\n");
+  }
+#endif
 #endif
   printf("\x04");  // EOT: ends the FVP run (semihosting exit); a board just sees a 0x04
   fflush(stdout);
+#ifdef WALDO_FVP_TURRET
+  {  // Semihosting SYS_EXIT (ADP_Stopped_ApplicationExit): ends the FVP run now.
+    register int r0 __asm__("r0") = 0x18;
+    register int r1 __asm__("r1") = 0x20026;
+    __asm__ volatile("bkpt 0xAB" : "+r"(r0) : "r"(r1) : "memory");
+  }
+#endif
   return 0;
 }
