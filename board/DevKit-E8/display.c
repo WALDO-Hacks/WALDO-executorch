@@ -250,3 +250,23 @@ int board_display_text(int x, int y, const char *text, uint8_t r, uint8_t g, uin
     }
     return x;
 }
+
+/* A label in image pixels (like board_display_box): above (x, y) on a dark strip, or just
+   below y if that would leave the picture. Kept inside the picture horizontally. */
+void board_display_image_label(int x, int y, const char *text, uint8_t r, uint8_t g, uint8_t b, int scale)
+{
+    if (!display_ready || !text || !*text) {
+        return;
+    }
+    int n = 0;
+    while (text[n]) n++;
+    const int tw = n * FONT_W * scale + 4, th = FONT_H * scale + 2;
+    int px = img_x0 + x * img_scale, py = img_y0 + y * img_scale - th;
+    if (py < img_y0) py = img_y0 + y * img_scale + 2;   /* no room above: inside the box */
+    if (py < img_y0) py = img_y0;
+    const int right = img_x0 + img_w * img_scale;
+    if (px + tw > right) px = right - tw;
+    if (px < img_x0) px = img_x0;
+    board_display_fill(px, py, tw, th, 0, 0, 0);
+    board_display_text(px + 2, py + 1, text, r, g, b, scale);
+}
