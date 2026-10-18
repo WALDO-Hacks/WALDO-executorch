@@ -51,7 +51,7 @@ int main(void)
     printf("KWS self-test (U55-128): heard \"%s\" (%.2f), max MFCC diff to Python %.4f\n", kws_label(best),
            (double)(best >= 0 ? probs[best] : 0), (double)err);
     for (int i = 0; i < KWS_LABELS; i++) printf("  %-10s %.3f\n", kws_label(i), (double)probs[i]);
-    printf("KWS NPU PMU cycles: %llu\n", static_cast<unsigned long long>(ethos_npu_pmu_cycles_take()));
+    printf("KWS NPU PMU cycles: %lu\n", static_cast<unsigned long>(ethos_npu_pmu_cycles_take()));
     pass = best >= 0 && std::string_view(kws_label(best)) == "yes" && err < 0.05f;
   } else {
     printf("keyword spotter init failed\n");

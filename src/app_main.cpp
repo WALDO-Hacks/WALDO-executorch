@@ -157,13 +157,13 @@ extern "C" int app_main(void) {
   ethos_npu_pmu_cycles_take();
   if (kws_init()) {
     kws_self_test();
-    printf("KWS NPU PMU cycles: %llu\n", static_cast<unsigned long long>(ethos_npu_pmu_cycles_take()));
+    printf("KWS NPU PMU cycles: %lu\n", static_cast<unsigned long>(ethos_npu_pmu_cycles_take()));
   } else {
     printf("keyword spotter init failed\nKWS_result: FAIL\n");
   }
   if (yolo_init()) {
     yolo_self_test();
-    printf("YOLO NPU PMU cycles: %llu\n", static_cast<unsigned long long>(ethos_npu_pmu_cycles_take()));
+    printf("YOLO NPU PMU cycles: %lu\n", static_cast<unsigned long>(ethos_npu_pmu_cycles_take()));
   } else {
     printf("object detector init failed\nYOLO_result: FAIL\n");
   }

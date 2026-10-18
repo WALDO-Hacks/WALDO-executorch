@@ -103,7 +103,7 @@ jobs:
           FVP_Corstone_SSE-300_Ethos-U55 \
               -f fvp/corstone-300/fvp_config.txt \
               -a "${IMAGE}" \
-              --simlimit 120 --stat \
+              --simlimit 20 --stat \
               2>&1 | tee fvp_corstone300.log || true
           grep -q "KWS_HE_result: PASS" fvp_corstone300.log
 
