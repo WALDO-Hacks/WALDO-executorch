@@ -22,10 +22,12 @@ project:
       Link:
         - -Wl,-u,_printf_float
 
-  # fvp-sim: the Corstone-320 FVP also runs the turret's YOLOv8n and KWS self-tests.
+  # The Corstone-320 FVP also runs the turret's YOLOv8n and KWS self-tests. GCC only: its
+  # linker script puts the 3 MB YOLO program in DDR; the AC6 and Clang builds stay as they were.
   setups:
     - setup: FVP turret self-tests
       for-context: +SSE-320-U85
+      for-compiler: GCC
       define:
         - WALDO_FVP_TURRET
 
@@ -70,6 +72,7 @@ project:
     # fvp-sim: the turret's models and their self-test code on the Corstone-320 FVP.
     - group: FVP-Turret
       for-context: +SSE-320-U85
+      for-compiler: GCC
       files:
         - file: ./src/waldo/jpeg_frame.c
         - file: ./src/waldo/tjpgd/tjpgd.c

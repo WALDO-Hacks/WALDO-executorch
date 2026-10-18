@@ -119,7 +119,11 @@
 //   <o0> Stack Size (in Bytes) <0x0-0xFFFFFFFF:8>
 //   <o1> Heap Size (in Bytes) <0x0-0xFFFFFFFF:8>
 #define __STACK_SIZE  0x00001000
-#define __HEAP_SIZE   0x00100000   /* fvp-sim: 1 MB, three ExecuTorch programs (BlazeFace, KWS, YOLOv8n) */
+#if defined(__GNUC__) && !defined(__clang__) && !defined(__ARMCC_VERSION)
+#define __HEAP_SIZE   0x00100000   /* GCC: 1 MB, three ExecuTorch programs (BlazeFace, KWS, YOLOv8n) */
+#else
+#define __HEAP_SIZE   0x00018000
+#endif
 // </h>
 
 #endif /* REGIONS_SSE_320_H */
