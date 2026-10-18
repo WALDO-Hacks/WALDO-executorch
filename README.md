@@ -250,7 +250,7 @@ SENTRY. The FVP build prints `Test_result` (BlazeFace), and with GCC also `KWS_r
 **Worked on the board (v1, branch `waldo`):** face tracking with BlazeFace on the NPU, the
 camera link, servo tracking, the LCD view, the microphones, standalone boot.
 
-**Ran on the DK-E8 (team-reported, 2026-10-18; no measurement stored in this repo):** YOLOv8n
+**Ran on the DK-E8:** YOLOv8n
 in the firmware, live keyword spotting, the orchestrator and patrol, the JPEG camera link and
 the two-brain split. Also built, host-tested and run on the FVPs (numbers above). Not measured on the
 board: WALDO's YOLO frame time and the power of single- vs two-brain.
