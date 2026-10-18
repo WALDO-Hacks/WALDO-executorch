@@ -26,5 +26,10 @@ enum { TRACK_SWITCH_ANY = 1, TRACK_SWITCH_LEFT, TRACK_SWITCH_RIGHT, TRACK_SWITCH
 void tracker_switch(int dir);
 // Drop the current target and go back to following people.
 void tracker_reset_target(void);
+// Drop the current target (lost, or the turret moves on) but keep following its class.
+void tracker_lose_target(void);
+// Follow this YOLO class from now on (0 = people), e.g. a "track cup" command. The class
+// stays until another one is chosen: tracker_switch(), this, or tracker_reset_target().
+void tracker_set_target_class(int cls);
 // Class being followed (detect_class_name), for the console.
 int tracker_target_class(void);

@@ -230,9 +230,21 @@ void tracker_switch(int dir) { switch_dir = dir; }
 void tracker_reset_target(void)
 {
     target_cls = TRACK_PEOPLE;
+    tracker_lose_target();
+}
+
+void tracker_lose_target(void)
+{
     st.has_target = false;
     target_index = -1;
+    switch_dir = 0;
     kf_on = false;
+}
+
+void tracker_set_target_class(int cls)
+{
+    target_cls = cls == 0 ? TRACK_PEOPLE : cls;
+    tracker_lose_target();
 }
 
 int tracker_target_class(void) { return target_cls == TRACK_PEOPLE ? 0 : target_cls; }

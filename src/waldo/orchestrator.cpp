@@ -51,6 +51,11 @@ struct {
     uint32_t looks, yolo_looks;
 } patrol;
 
+// Wake word ("Hey Waldo"), off unless the firmware turns it on (orchestrator.h).
+constexpr uint32_t kListenMs = 5000;         // listening window after the wake word; each command renews it
+bool wake_required;
+bool listening;
+uint32_t listen_until;
 enum orch_state state = ORCH_SENTRY;
 enum orch_state before_hold = ORCH_SENTRY;   // "go" after "stop" goes back to it
 uint32_t state_since, last_target_ms, last_move_ms, frames_in_state;
@@ -83,8 +88,9 @@ void enter(enum orch_state s, uint32_t now)
         motion_set(AXIS_TILT, kParkTilt);
         last_move_ms = now;
     } else if (s == ORCH_SENTRY && state_before_enter == ORCH_TRACK) {
-        // Lost a target: patrol on from the nearest stop at once, no trip home first.
-        tracker_reset_target();
+        // Lost a target: patrol on from the nearest stop at once, no trip home first, still
+        // looking for the same kind of thing.
+        tracker_lose_target();
         last_move_ms = now;
         patrol.investigate = 0;
         patrol.lap = 0;
@@ -92,7 +98,10 @@ void enter(enum orch_state s, uint32_t now)
     } else if (s == ORCH_SENTRY) {
         motion_set(AXIS_PAN, 0);
         motion_set(AXIS_TILT, 0);
-        tracker_reset_target();   // back to looking for people
+        // A chosen class (say "right" onto a cup) survives "stop"/"go"; only a fresh start
+        // from PARKED goes back to people.
+        if (state_before_enter == ORCH_PARKED) tracker_reset_target();
+        else tracker_lose_target();
         last_move_ms = now;
         patrol.phase = P_HOME;
         patrol.t = now;
@@ -322,6 +331,17 @@ void orch_tick(uint32_t now)
 void orch_word(const char *w, uint32_t now)
 {
     printf("orch: heard \"%s\" in %s\n", w, orch_state_name(state));
+    if (wake_required) {
+        const bool safety = !strcmp(w, "stop") || !strcmp(w, "off");   // never behind the wake word
+        if (!safety && !orch_listening(now)) {
+            printf("orch: ignored (say \"Hey Waldo\" first)\n");
+            return;
+        }
+        if (!safety) {   // an accepted command keeps the window open for the next one
+            listen_until = now + kListenMs;
+            listening = true;
+        }
+    }
     if (!strcmp(w, "off")) {
         enter(ORCH_PARKED, now);
     } else if (!strcmp(w, "on") || !strcmp(w, "go")) {
@@ -350,6 +370,34 @@ void orch_word(const char *w, uint32_t now)
             last_move_ms = now;
         }
     }
+}
+
+void orch_wake(uint32_t now)
+{
+    listen_until = now + kListenMs;
+    listening = true;
+    printf("orch: wake word, listening for %lu s\n", (unsigned long)(kListenMs / 1000));
+}
+
+void orch_set_wake_required(bool on)
+{
+    if (on != wake_required) printf("orch: wake word %s\n", on ? "required" : "not required");
+    wake_required = on;
+}
+
+bool orch_listening(uint32_t now)
+{
+    if (!wake_required) return true;
+    if (listening && (int32_t)(listen_until - now) <= 0) listening = false;
+    return listening;
+}
+
+void orch_track_class(int cls, uint32_t now)
+{
+    printf("orch: track %s in %s\n", detect_class_name(cls), orch_state_name(state));
+    if (state == ORCH_PARKED) return;
+    tracker_set_target_class(cls);
+    last_target_ms = now;
 }
 
 void orch_print(uint32_t now)

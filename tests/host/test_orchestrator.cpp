@@ -10,6 +10,7 @@
 #include "detector.h"
 #include "motion.h"
 #include "orchestrator.h"
+#include "tracker.h"
 
 // ---- scripted detector ----
 static det_box script[4];
@@ -141,6 +142,85 @@ int main()
         orch_tick(now);
     }
     CHECK(orch_state() == ORCH_SENTRY);
+
+    // ---- a chosen class is kept (from the team's integration branch, without "hold target") ----
+    // "track cup": a person alone is not followed, a cup is.
+    script_n = 0;
+    orch_word("off", now);   // a fresh start: SENTRY at home, the detector on every 2nd frame
+    orch_word("on", now);
+    orch_track_class(14, now);
+    CHECK(tracker_target_class() == 14);
+    script[0] = {130, 50, 16, 16, 0.9f, 0};   // a person, far right
+    script_n = 1;
+    const float p_cup0 = motion_target(AXIS_PAN);
+    step(10);
+    CHECK(orch_state() == ORCH_SENTRY && fabsf(motion_target(AXIS_PAN) - p_cup0) < 0.01f);
+    script[1] = {30, 50, 16, 16, 0.9f, 14};   // a cup, left of centre
+    script_n = 2;
+    step(6);
+    CHECK(orch_state() == ORCH_TRACK && motion_target(AXIS_PAN) > p_cup0 + 2);   // +pan = left
+    // "stop" then "go" while tracking: same class, back to TRACK.
+    orch_word("stop", now);
+    orch_word("go", now);
+    CHECK(orch_state() == ORCH_TRACK && tracker_target_class() == 14);
+    // The cup is gone (only the person is visible): after 4 s the patrol goes looking for cups.
+    script_n = 1;
+    step(50);
+    CHECK(orch_state() == ORCH_SENTRY && tracker_target_class() == 14);
+    // "no": back to people.
+    orch_word("no", now);
+    CHECK(tracker_target_class() == 0);
+    // A class chosen while PARKED is ignored; "off" then "on" starts again with people.
+    script_n = 0;
+    orch_word("off", now);
+    orch_track_class(14, now);
+    CHECK(tracker_target_class() == 0);
+    orch_word("on", now);
+    CHECK(orch_state() == ORCH_SENTRY);
+    // In SENTRY a chosen class survives "stop"/"go"; "off"/"on" resets it.
+    orch_track_class(14, now);
+    orch_word("stop", now);
+    orch_word("go", now);
+    CHECK(orch_state() == ORCH_SENTRY && tracker_target_class() == 14);
+    orch_word("off", now);
+    orch_word("on", now);
+    CHECK(tracker_target_class() == 0);
+
+    // ---- wake word (from the team's integration branch): commands act only while listening;
+    //      "stop" and "off" always work ----
+    CHECK(orch_listening(now));                 // not required (the default): always listening
+    orch_set_wake_required(true);
+    CHECK(!orch_listening(now));
+    orch_word("stop", now);                     // safety word: no wake word needed
+    CHECK(orch_state() == ORCH_HOLD);
+    orch_word("go", now);                       // ignored: nobody said "Hey Waldo"
+    CHECK(orch_state() == ORCH_HOLD);
+    orch_wake(now);
+    CHECK(orch_listening(now));
+    orch_word("go", now);                       // now accepted
+    CHECK(orch_state() == ORCH_SENTRY);
+    now += 6000;                                // the window closes after 5 s
+    CHECK(!orch_listening(now));
+    float tilt_w = motion_target(AXIS_TILT);
+    orch_word("up", now);
+    CHECK(fabsf(motion_target(AXIS_TILT) - tilt_w) < 0.01f);    // ignored
+    orch_wake(now);
+    now += 4000;
+    orch_word("up", now);                       // accepted, and renews the window
+    CHECK(motion_target(AXIS_TILT) > tilt_w + 5);
+    now += 4000;                                // 4 s after the command: still open
+    CHECK(orch_listening(now));
+    now += 2000;                                // 6 s after it: closed
+    CHECK(!orch_listening(now));
+    orch_word("off", now);                      // always works
+    CHECK(orch_state() == ORCH_PARKED);
+    orch_word("on", now);                       // ignored
+    CHECK(orch_state() == ORCH_PARKED);
+    orch_wake(now);
+    orch_word("on", now);
+    CHECK(orch_state() == ORCH_SENTRY);
+    orch_set_wake_required(false);              // back to every word acts
+    CHECK(orch_listening(now + 100000));
 
     // "stop" in SENTRY then "go": back to SENTRY (nothing to resume).
     script_n = 0;
