@@ -3,8 +3,8 @@
 WALDO is a pan/tilt turret with a flashlight. It looks for people and objects with a
 camera, points at them, and keeps following them. You steer it by voice: "stop", "go",
 "left", "off". All of it runs on the **Alif Ensemble E8 DevKit**, with no PC and no cloud.
-Three neural networks run through **ExecuTorch on the Ethos-U85 NPU**, and the Cortex-M55
-does the rest.
+Two neural networks run through **ExecuTorch on the Ethos-U85 NPU**: YOLOv8n sees, MicroNet
+listens. The Cortex-M55 does the rest.
 
 Built for the Arm + Meta ExecuTorch hackathon on this repository's `hackathon` template.
 The original setup guide for the template is in
@@ -21,9 +21,8 @@ flowchart LR
     end
     subgraph E8["Alif Ensemble E8: Cortex-M55 HP + Ethos-U85"]
         RX["UART RX + JPEG decode<br/>(M55)"]
-        FACE["BlazeFace<br/>faces (U85)"]
         YOLO["YOLOv8n<br/>28 object classes (U85)"]
-        MOT["Motion detect<br/>(M55, no model)"]
+        MOT["Motion + patrol memory<br/>(M55, no model)"]
         MIC["2 PDM mics<br/>MFCC (M55)"]
         KWS["MicroNet KWS<br/>10 words (U85)"]
         ORCH{{"Orchestrator<br/>PARKED · SENTRY · TRACK · HOLD"}}
@@ -32,9 +31,9 @@ flowchart LR
     end
     SERVO["Pan / tilt servos<br/>+ flashlight"]
     CAM -- "320x240 colour, 2 Mbaud UART" --> RX
-    RX --> MOT & FACE & YOLO
+    RX --> MOT & YOLO
     MIC --> KWS
-    MOT & FACE & YOLO & KWS --> ORCH
+    MOT & YOLO & KWS --> ORCH
     ORCH --> TRK --> SERVO
     ORCH --> LCD
 ```
@@ -45,8 +44,8 @@ the unit that fits it:
 
 | Job | Runs on | Why |
 |---|---|---|
-| Face and object detection, keyword spotting | **Ethos-U85** via ExecuTorch | dense int8 convolutions; every operator of all three models runs on the NPU |
-| MFCC audio features, JPEG decode, motion detection, box decoding and NMS | **Cortex-M55** | branchy or small work, cheaper on the CPU than a trip to the NPU |
+| Object detection, keyword spotting | **Ethos-U85** via ExecuTorch | dense int8 convolutions; every operator of both models runs on the NPU |
+| MFCC audio features, JPEG decode, motion detection, patrol memory, box decoding and NMS | **Cortex-M55** | branchy or small work, cheaper on the CPU than a trip to the NPU |
 | Microphone capture, camera bytes | PDM block, UART, both on interrupts | audio and frames arrive while the NPU runs |
 | Servo PWM | UTIMER hardware | jitter-free 50 Hz, no CPU cost |
 
@@ -73,9 +72,17 @@ stateDiagram-v2
 | State | What runs | Turret |
 |---|---|---|
 | PARKED | microphones only | head down |
-| SENTRY | motion detection on every frame (CPU only); the detector on every 4th frame | looks ahead and turns toward movement |
+| SENTRY | motion detection on every frame (CPU only); YOLO only where the patrol memory says something changed | patrols: move, settle, look |
 | TRACK | the detector on every frame | follows the target |
 | HOLD | the detector on every frame | frozen |
+
+**The patrol.** After 4 s of quiet, SENTRY sweeps a Z of 10 stops (pan -70 to 70 degrees,
+two tilts). At each stop the turret moves, waits 0.6 s for the servos to settle, then looks
+for 0.7 s. Each stop keeps a 300-byte picture of itself (the mean of every 8x8 cell), and
+YOLO runs only where that picture changed since the last lap, on a first visit, at every
+stop every third lap, or when something moves. On the host test, the second lap of an
+unchanged room runs YOLO at 0 of 10 stops, and an object that appears is picked up at the
+one stop that sees it ([tests/host/test_orchestrator.cpp](tests/host/test_orchestrator.cpp)).
 
 **Voice commands:**
 
@@ -87,8 +94,8 @@ stateDiagram-v2
 | left / right / up / down | while tracking: **switch to the nearest person or object in that direction, and follow that kind of thing** (say "right" to move from a person to the cup beside them); otherwise: nudge the turret 10° |
 | no | drop the current target, back to following people |
 
-WALDO follows **people** by default (YOLOv8 on colour frames; BlazeFace faces as the
-fallback on grayscale frames). The screen shows the camera view with boxes on what it sees
+WALDO follows **people** by default, and aims at the chest rather than the face so the
+light stays out of people's eyes. The screen shows the camera view with boxes on what it sees
 (the target green, other people yellow, objects cyan) and a bar for the state: red PARKED,
 blue SENTRY, green TRACK, yellow HOLD.
 
@@ -100,7 +107,7 @@ the image.
 
 | Model | Task | Input | NPU ops | Program | Source |
 |---|---|---|---|---|---|
-| **BlazeFace** | face detection | 128x128 gray | 100 % | 200 KB | MediaPipe front model, first conv folded to 1 channel ([model/model.py](model/model.py)) |
+| BlazeFace (v1 turret, FVP self-test) | face detection | 128x128 gray | 100 % | 200 KB | MediaPipe front model, first conv folded to 1 channel ([model/model.py](model/model.py)) |
 | **MicroNet-M** | keyword spotting, 10 words | 49x10 MFCC (1 s at 16 kHz) | 42/42 | 170 KB | Arm ML-Zoo, rebuilt in PyTorch from its TFLite weights ([model/kws](model/kws)) |
 | **YOLOv8n** | 28 object classes | 320x320 RGB | 99/99 | 3.0 MB | Ultralytics, head sliced to 28 room classes by our vision lead ([model/yolo](model/yolo)) |
 
@@ -112,8 +119,8 @@ Only the float-to-int8 conversions at each model's input and output stay on the 
 
 | What | Number | Where |
 |---|---|---|
-| BlazeFace inference | **9.4 ms** on the U85 | board |
-| Full face-tracking frame: preprocess 3.6 + NPU 9.4 + decode 0.6 + display 12.1 | 25.6 ms (27 % of the CPU at 10 fps) | board |
+| BlazeFace inference (v1 turret) | **9.4 ms** on the U85 | board |
+| Full face-tracking frame (v1): preprocess 3.6 + NPU 9.4 + decode 0.6 + display 12.1 | 25.6 ms (27 % of the CPU at 10 fps) | board |
 | Boot self-test: face found on a built-in photo | `Test_result: PASS` | board |
 | Microphones: both channels at 16 kHz, no FIFO errors | — | board |
 | Camera link, grayscale 160x120 (v1) | 10.4 fps | board |
@@ -122,18 +129,23 @@ Only the float-to-int8 conversions at each model's input and output stay on the 
 | KWS: int8 model vs float vs Arm's TFLite original on the sample clips | agree on every word | host |
 | YOLOv8n int8 on the team's 12 golden images vs the float model | agree on all but 3 near-threshold detections | host |
 | YOLOv8n on a DK-E8 (the team's own export) | 29 ms per frame, mAP50 0.439 board vs 0.439 host | board |
+| YOLOv8n compute, from Vela | 1.09 GMAC per frame, 2.0 MB of SRAM scratch, 99/99 operators on the NPU | build |
+| Patrol: YOLO runs on a second lap of an unchanged room | 0 of 10 stops | host |
 
 ### Optimisations
 
 - **The camera sends JPEG**, compressed by the sensor's own hardware. Colour at 4x the
   pixels and 2.7x the frame rate, over the same 2 Mbaud UART.
-- **Motion gating in SENTRY**: the detector runs on 1 frame in 4 until something moves.
+- **The patrol remembers each stop.** A 300-byte picture per stop decides whether YOLO
+  needs to look again, so an unchanged room costs the NPU nothing on most laps.
 - **Audio features are computed as audio arrives.** Each 20 ms of audio adds one MFCC
   frame, so a 1 s window never needs recomputing; the NPU classifies it every 200 ms.
 - **The NPU only sees work it is good at.** Every operator of every model is delegated.
 - **Per-stage timing**: every 2 s the board prints mean and worst time per stage
-  (preprocess, NPU, decode, orchestrator, display), which is how we found that the display,
-  not the NPU, is the most expensive stage.
+  (preprocess, forward, decode, orchestrator, display), which is how we found that the display,
+  not the NPU, is the most expensive stage. The Ethos driver's begin/end hooks time the NPU's
+  own work separately, so `forward` minus `NPU busy` is what the CPU spends converting the
+  input to int8 and the outputs back.
 
 ## Hardware
 
@@ -170,8 +182,8 @@ python create_ai_layer.py cmsis-executorch.cbuild-mlops.yml                   # 
 make -C tests/host                                                            # orchestrator host test
 ```
 
-At boot the board tests itself and prints `Test_result` (face), `KWS_result` (a recorded
-"yes") and `YOLO_result` (a photo of people). Then it runs a servo test and starts in SENTRY.
+At boot the board tests itself and prints `KWS_result` (a recorded "yes") and `YOLO_result`
+(a photo of people). The FVP build prints `Test_result` (BlazeFace on a face photo). Then it runs a servo test and starts in SENTRY.
 
 ## Things we learned about the E8
 
@@ -180,8 +192,11 @@ At boot the board tests itself and prints `Test_result` (face), `KWS_result` (a 
   banks through the Secure Enclave right after the console is up
   (`SERVICES_power_memory_req`), and startup no longer touches them
   ([board/DevKit-E8/main.c](board/DevKit-E8/main.c)).
-- **The Ethos-U85 cannot reach the M55's DTCM.** ExecuTorch's pools have to sit in SRAM;
-  in DTCM the NPU fails with status 0x9004.
+- **The Ethos-U85 sees the M55's TCM only at its global alias.** With ExecuTorch's pools in
+  DTCM the NPU failed with status 0x9004: the driver passed the core's local address.
+  We override the driver's `ethosu_address_remap` to translate it
+  ([board/DevKit-E8/ethos_setup.c](board/DevKit-E8/ethos_setup.c)); the large pools still
+  sit in SRAM.
 - The UTIMER driver needs a non-NULL callback. Servo channels need compare buffering off,
   or the duty cycle never changes.
 - Arm's quantizer does not fuse `relu6` with a convolution in this ExecuTorch version, and
@@ -190,8 +205,8 @@ At boot the board tests itself and prints `Test_result` (face), `KWS_result` (a 
 
 ## Status
 
-**Works on the board:**
-- face detection on the NPU
+**Works on the board (v1, branch `waldo`):**
+- face tracking with BlazeFace on the NPU
 - camera link, servo tracking, the LCD view
 - microphones
 - standalone boot with the self-test
@@ -200,9 +215,11 @@ At boot the board tests itself and prints `Test_result` (face), `KWS_result` (a 
 - keyword spotting live
 - the orchestrator
 - the JPEG camera path
-- YOLOv8 in the firmware (branch `yolo`): the app's MRAM slot grows to 4.5 MB and the HE
-  slot shrinks to 512 KB; the model is embedded as is (`src/yolo_pte.S`); its pools sit in
-  SRAM0 and SRAM1; a boot self-test runs it on a photo of people
+- the patrol with per-stop memory
+- YOLOv8 in the firmware: the app's MRAM slot grows to 4.5 MB and the HE slot shrinks to
+  512 KB; the model is embedded as is (`src/yolo_pte.S`); its pools sit in SRAM0 and SRAM1
+  (`WALDO_NPU_SRAM0_ONLY` puts both NPU pools in SRAM0 instead); a boot self-test runs it on
+  a photo of people
 
 **Next steps:**
 - Move always-on listening and motion detection to the **M55-HE + Ethos-U55** and put the
