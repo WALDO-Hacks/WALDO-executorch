@@ -16,8 +16,6 @@
 #include "he.h"
 #include "kws.hpp"
 #include "test_kws.h"
-#include "test_wake.h"
-#include "wake.hpp"
 #include "waldo/brain_link.h"
 #include "waldo/kws_mfcc.h"
 #include "waldo/mic.h"
@@ -51,17 +49,6 @@ void self_test()
            (double)m->selftest_prob, (unsigned long)mfcc_us, (unsigned long)kws_last_us());
 }
 
-// The wake word: a known "Hey Waldo" must score high and the KWS "yes" low, on the U55.
-// Failure only disables the wake word (the HP keeps using the command words).
-void wake_boot(bool loaded)
-{
-    float p_pos = -1.0f, p_neg = -1.0f;
-    const bool pass = loaded && wake_self_test(test_wake_pos, test_kws_yes, &p_pos, &p_neg);
-    printf("HE: wake word %s: \"Hey Waldo\" %.3f (host float %.3f), \"yes\" %.3f, NPU %lu us\n",
-           pass ? "enabled" : "DISABLED", (double)p_pos, (double)test_wake_float_prob, (double)p_neg,
-           (unsigned long)wake_last_us());
-}
-
 }  // namespace
 
 extern "C" int he_app_main(void)
@@ -80,10 +67,8 @@ extern "C" int he_app_main(void)
         for (;;) __WFI();
     }
     set_stage(BRAIN_MODEL);
-    const bool wake_loaded = wake_init();
 
     self_test();
-    wake_boot(wake_loaded);
     set_stage(BRAIN_SELFTEST);
 
     if (mic_init() != 0) {
@@ -109,9 +94,7 @@ extern "C" int he_app_main(void)
             mic_levels(&r0, &r1, &errs);
             m->windows += windows;
             m->mfcc_us += mfcc_us;
-            uint32_t wake_us, wake_windows, wake_events;
-            wake_stats(&wake_us, &wake_windows, &wake_events);
-            m->npu_us += npu_us + wake_us;   // both networks' U55 time
+            m->npu_us += npu_us;
             m->rms0 = r0;
             m->rms1 = r1;
             m->mic_errors = errs;

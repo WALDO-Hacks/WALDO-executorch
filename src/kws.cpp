@@ -22,9 +22,6 @@
 #include "kws_pte.h"
 #include "waldo/kws_mfcc.h"
 #include "waldo/mic.h"
-#if defined(WALDO_HE)
-#include "wake.hpp"   // he/: the "Hey Waldo" detector sees every window too
-#endif
 
 using arm::embedded::EmbeddedModule;
 using executorch::aten::DimOrderType;
@@ -198,9 +195,6 @@ int kws_listen(uint32_t now_ms)
         if (kws_classify(&g_feats[0][0], probs) < 0) continue;
         g_npu_us += g_last_us;
         g_windows++;
-#if defined(WALDO_HE)
-        wake_on_window(&g_feats[0][0], now_ms);
-#endif
         std::memmove(g_hist[1], g_hist[0], sizeof(g_hist) - sizeof(g_hist[0]));
         std::memcpy(g_hist[0], probs, sizeof(probs));
         if (g_hist_n < kSmooth) g_hist_n++;

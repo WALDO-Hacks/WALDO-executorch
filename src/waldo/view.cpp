@@ -19,6 +19,10 @@ void waldo_view_draw(const struct cam_frame *f, const struct det_box *boxes, int
         const bool person = boxes[i].cls == 0;
         const uint8_t r = t ? 0 : person ? 255 : 0, g = t ? 255 : person ? 200 : 200, b = t ? 0 : person ? 0 : 255;
         board_display_box(k * boxes[i].x, k * boxes[i].y, k * boxes[i].w, k * boxes[i].h, r, g, b, t ? 3 : 2);
+        // What it is (and its score), in the box's colour.
+        char label[32];
+        snprintf(label, sizeof label, "%s %d%%", detect_class_name(boxes[i].cls), (int)(boxes[i].score * 100 + 0.5f));
+        board_display_image_label(k * boxes[i].x, k * boxes[i].y, label, r, g, b, 2);
     }
     // Centre mark: the tracker drives the target onto it.
     board_display_box(k * f->width / 2 - 2, k * f->height / 2 - 2, 5, 5, 255, 255, 255, 1);

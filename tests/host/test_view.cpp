@@ -11,6 +11,10 @@
 
 extern "C" void display_host_save(const char *path);
 
+// The detector's class names, for the box labels (the model's list, as in yolo_detector.cpp).
+#include "../../src/yolo/waldo_yolo_classes.h"
+const char *detect_class_name(int cls) { return cls >= 0 && cls < 28 ? waldo::kClassNames[cls] : "motion"; }
+
 // The orchestrator's state names (its other code isn't needed for drawing).
 const char *orch_state_name(enum orch_state s)
 {

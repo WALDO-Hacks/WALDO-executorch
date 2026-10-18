@@ -16,6 +16,8 @@ void board_display_box(int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t
 #define BOARD_DISPLAY_HEIGHT 800
 void board_display_fill(int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b);
 int board_display_text(int x, int y, const char *text, uint8_t r, uint8_t g, uint8_t b, int scale);
+/* Text in image pixels next to a box (board_display_box's coordinates), on a dark strip. */
+void board_display_image_label(int x, int y, const char *text, uint8_t r, uint8_t g, uint8_t b, int scale);
 
 #ifdef __cplusplus
 }
