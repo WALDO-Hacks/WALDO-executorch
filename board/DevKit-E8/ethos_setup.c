@@ -115,3 +115,15 @@ void ethos_setup (void) {
     printf("\tMACs/cc:    %u\n", (uint32_t)(1 << hw_info.cfg.macs_per_cc));
     printf("\tCmd stream: v%u\n", hw_info.cfg.cmd_stream_version);
 }
+
+/* WALDO: the NPU sees the M55's tightly coupled memories only at their global addresses
+   (HP ITCM 0x50000000, DTCM 0x50800000), while ExecuTorch hands the driver the core's
+   local ones (0x0, 0x20000000). Translate them, so a buffer in TCM works too; SRAM and
+   MRAM addresses pass through unchanged. Overrides the driver's weak default. */
+#include "sys_utils.h"
+
+uint64_t ethosu_address_remap(uint64_t address, int index)
+{
+    (void)index;
+    return LocalToGlobal((const volatile void *)(uintptr_t)address);
+}
