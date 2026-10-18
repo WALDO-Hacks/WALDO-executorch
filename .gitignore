@@ -85,3 +85,4 @@ fvp_stdout.log
 !.vscode/fvp.Dockerfile
 !.vscode/launch.json.mac
 tests/host/test_orchestrator
+yolov8n.pt
