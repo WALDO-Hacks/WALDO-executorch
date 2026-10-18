@@ -22,5 +22,9 @@ enum { TRACK_SWITCH_ANY = 1, TRACK_SWITCH_LEFT, TRACK_SWITCH_RIGHT, TRACK_SWITCH
 void tracker_switch(int dir);
 // Drop the current target and go back to following people.
 void tracker_reset_target(void);
+// Follow this YOLO class from now on (a voice command by name, "track cup"). 0 = people.
+// Drops the current target; the class stays until another one is chosen (tracker_switch,
+// tracker_set_target_class, tracker_reset_target), however long the target is out of sight.
+void tracker_set_target_class(int cls);
 // Class being followed (detect_class_name), for the console.
 int tracker_target_class(void);

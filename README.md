@@ -75,7 +75,7 @@ much work each camera frame gets, so YOLO runs only when there is something to l
 stateDiagram-v2
     [*] --> SENTRY
     SENTRY --> TRACK: target found / motion
-    TRACK --> SENTRY: target lost 5 s
+    TRACK --> SENTRY: target lost 5 s (only with hold target off)
     TRACK --> HOLD: "stop"
     SENTRY --> HOLD: "stop"
     HOLD --> TRACK: "go" (was tracking)
@@ -90,7 +90,7 @@ stateDiagram-v2
 |---|---|---|
 | PARKED | microphones only | head down, light into the deck |
 | SENTRY | motion on every frame (CPU); YOLO only where the patrol memory says something changed | patrols: move, settle, look |
-| TRACK | YOLO on every frame | follows the target |
+| TRACK | YOLO on every frame | follows the target; if it is lost, holds its pose and its class until another is chosen (hold target, the default; `orch_set_hold_target(false)` gives back the 5 s fall-back to SENTRY) |
 | HOLD | YOLO on every frame | frozen |
 
 **The patrol.** After 4 s of quiet, SENTRY sweeps a Z of 10 stops (pan -70 to 70 degrees,

@@ -25,6 +25,7 @@ static bool is_target_class(int cls)
 
 static struct {
     bool has_target, at_home = true;
+    bool have_last;   // cx, cy, w hold the last place the target was seen; kept while it is out of sight
     float cx, cy, w;
     uint32_t last_seen_ms, seen;
     float err_pan, err_tilt;
@@ -40,7 +41,9 @@ bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
         if (!is_target_class(b[i].cls)) continue;
         float cx = b[i].x + b[i].w / 2.0f, cy = b[i].y + b[i].h / 2.0f;
         float score = (float)b[i].w * b[i].h;
-        if (st.has_target && hypotf(cx - st.cx, cy - st.cy) < 1.5f * st.w + 8) score *= 4;
+        // Continuity: prefer the box nearest where the target was last seen, also after it was
+        // out of sight for a while, so a bigger box elsewhere doesn't take over when it returns.
+        if (st.have_last && hypotf(cx - st.cx, cy - st.cy) < 1.5f * st.w + 8) score *= 4;
         if (score > best) {
             best = score;
             pick = i;
@@ -87,6 +90,7 @@ bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
     st.cy = b[pick].y + b[pick].h * (b[pick].cls == 0 ? 0.65f : 0.5f);
     st.w = b[pick].w;
     st.has_target = true;
+    st.have_last = true;
     st.at_home = false;
     st.last_seen_ms = now;
     st.seen++;
@@ -120,7 +124,17 @@ void tracker_reset_target(void)
 {
     target_cls = TRACK_PEOPLE;
     st.has_target = false;
+    st.have_last = false;
     target_index = -1;
+}
+
+void tracker_set_target_class(int cls)
+{
+    target_cls = cls == 0 ? TRACK_PEOPLE : cls;
+    st.has_target = false;
+    st.have_last = false;
+    target_index = -1;
+    switch_dir = 0;
 }
 
 int tracker_target_class(void) { return target_cls == TRACK_PEOPLE ? 0 : target_cls; }

@@ -6,7 +6,10 @@
 //           every 4th frame; after 4 quiet seconds it patrols a Z of 10 stops (move, settle,
 //           look) and runs the detector only where the view changed since the last lap or
 //           something moves (plus every 3rd lap); motion or a target -> TRACK
-//   TRACK   detector every frame, the tracker follows the target; lost for 5 s -> SENTRY
+//   TRACK   detector every frame, the tracker follows the target. By default (hold target)
+//           it stays here when the target is out of sight, holding its pose and its class,
+//           until another one is chosen by voice or "off"/"stop"; with hold target off,
+//           lost for 5 s -> SENTRY
 //   HOLD    "stop": the turret freezes but keeps looking; "go" resumes
 //
 // Voice: on/go wake or resume, stop holds, off parks; left/right/up/down nudge the turret,
@@ -28,6 +31,13 @@ void orch_frame(const struct cam_frame *f, uint32_t now_ms, struct det_box *boxe
 // Every main-loop pass: time-outs that must work without camera frames.
 void orch_tick(uint32_t now);
 void orch_word(const char *word, uint32_t now_ms);
+// Track this YOLO class (a command by name: "track cup"; 0 = people). It is kept until
+// another is chosen. Ignored while PARKED. In SENTRY the patrol goes looking for it.
+void orch_track_class(int cls, uint32_t now_ms);
+// Hold target (default on): a target that is lost stays the target, and TRACK is not left
+// for SENTRY. Off = the original behaviour (lost for 5 s -> SENTRY, back to people).
+void orch_set_hold_target(bool on);
+bool orch_hold_target(void);
 enum orch_state orch_state(void);
 const char *orch_state_name(enum orch_state s);
 // What SENTRY is doing ("scan 3/10"), or NULL.

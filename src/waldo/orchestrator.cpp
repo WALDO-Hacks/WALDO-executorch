@@ -50,6 +50,7 @@ struct {
     uint32_t looks, yolo_looks;
 } patrol;
 
+bool hold_target = true;                     // a lost target stays the target (see orchestrator.h)
 enum orch_state state = ORCH_SENTRY;
 enum orch_state before_hold = ORCH_SENTRY;   // "go" after "stop" goes back to it
 uint32_t state_since, last_target_ms, last_move_ms, frames_in_state;
@@ -73,7 +74,9 @@ void enter(enum orch_state s, uint32_t now)
     } else if (s == ORCH_SENTRY) {
         motion_set(AXIS_PAN, 0);
         motion_set(AXIS_TILT, 0);
-        tracker_reset_target();   // back to looking for people
+        // Back to looking for people, unless a target was chosen and is to be kept (hold target):
+        // only a fresh start from PARKED resets that.
+        if (!hold_target || state_before_enter == ORCH_PARKED) tracker_reset_target();
         last_move_ms = now;
         patrol.phase = P_HOME;
         patrol.t = now;
@@ -288,7 +291,7 @@ void orch_frame(const struct cam_frame *f, uint32_t now, struct det_box *boxes, 
         last_target_ms = now;
         last_move_ms = now;
         if (state == ORCH_SENTRY) enter(ORCH_TRACK, now);
-    } else if (state == ORCH_TRACK && now - last_target_ms > kLostToSentryMs) {
+    } else if (state == ORCH_TRACK && !hold_target && now - last_target_ms > kLostToSentryMs) {
         enter(ORCH_SENTRY, now);
     }
 }
@@ -296,7 +299,7 @@ void orch_frame(const struct cam_frame *f, uint32_t now, struct det_box *boxes, 
 void orch_tick(uint32_t now)
 {
     // Frames stopped (camera unplugged) while tracking: orch_frame() never runs, so give up here.
-    if (state == ORCH_TRACK && now - last_target_ms > kLostToSentryMs + 1000) enter(ORCH_SENTRY, now);
+    if (state == ORCH_TRACK && !hold_target && now - last_target_ms > kLostToSentryMs + 1000) enter(ORCH_SENTRY, now);
 }
 
 void orch_word(const char *w, uint32_t now)
@@ -330,6 +333,17 @@ void orch_word(const char *w, uint32_t now)
             last_move_ms = now;
         }
     }
+}
+
+void orch_set_hold_target(bool on) { hold_target = on; }
+bool orch_hold_target(void) { return hold_target; }
+
+void orch_track_class(int cls, uint32_t now)
+{
+    printf("orch: track %s in %s\n", detect_class_name(cls), orch_state_name(state));
+    if (state == ORCH_PARKED) return;
+    tracker_set_target_class(cls);
+    last_target_ms = now;
 }
 
 void orch_print(uint32_t now)
