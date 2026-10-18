@@ -1,10 +1,12 @@
 // YOLOv8n on the Ethos-U85 (yolo_detector.hpp). The NPU runs the whole network (99
-// operators, model/yolo/yolo.py); the Cortex-M55 letterboxes the frame into the float
-// input and decodes the three raw head maps (src/yolo/waldo_yolo_decode.h).
+// operators, model/yolo/yolo.py); the Cortex-M55 letterboxes the frame straight into the
+// int8 input and decodes the three int8 head maps (src/yolo/waldo_yolo_decode.h). The
+// export strips the float<->int8 conversions from the program (yolo_io_quant.h).
 
 #include "yolo_detector.hpp"
 
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <memory>
 
@@ -21,6 +23,7 @@ extern "C" uint32_t ethos_npu_cycles_take(void);   // board/DevKit-E8/ethos_setu
 #include "arm_embedded_module.hpp"
 #include "yolo/waldo_yolo_classes.h"
 #include "yolo/waldo_yolo_decode.h"
+#include "yolo/yolo_io_quant.h"
 
 extern "C" const unsigned char yolo_pte[];
 extern "C" const unsigned long yolo_pte_size;
@@ -52,7 +55,7 @@ constexpr size_t kTempPool = 0x204000;     // 2.0 MB, SRAM1 (SRAM0 with WALDO_NP
 #endif
 alignas(16) uint8_t g_method_pool[kMethodPool] __attribute__((section(".bss.ai_pool")));
 alignas(16) uint8_t g_temp_pool[kTempPool] __attribute__((section(YOLO_TEMP_SECTION)));
-alignas(16) float g_input[3 * kSize * kSize] __attribute__((section(".bss.sram1.yolo_input")));
+alignas(16) int8_t g_input[3 * kSize * kSize] __attribute__((section(".bss.sram1.yolo_input")));
 
 std::unique_ptr<EmbeddedModule> g_module;
 waldo::Det g_scratch[waldo::kMaxCandidates];
@@ -94,11 +97,17 @@ int yolo_detect_rgb(const uint8_t *rgb, int w, int h, float min_score, yolo_box 
     if (!g_module || w <= 0 || h <= 0 || w > kSize || h > kSize) return -1;
     const uint32_t t0 = DWT->CYCCNT;
 
-    // Letterbox (keep aspect, grey 114 around), float CHW in [0, 1]. A portrait 240x320
-    // camera frame is already 320 tall: scale 1, 40 px of grey each side.
-    static float lut[256];
-    if (lut[255] == 0.0f) {
-        for (int i = 0; i < 256; i++) lut[i] = i / 255.0f;
+    // Letterbox (keep aspect, grey 114 around), CHW, each pixel p quantized as the model's
+    // input p / 255 by table. A portrait 240x320 camera frame is already 320 tall: scale 1,
+    // 40 px of grey each side.
+    static int8_t lut[256];
+    static bool lut_ready;
+    if (!lut_ready) {
+        for (int i = 0; i < 256; i++) {
+            int q = (int)lroundf(i / 255.0f / YOLO_IN_SCALE) + YOLO_IN_ZP;
+            lut[i] = (int8_t)(q < -128 ? -128 : q > 127 ? 127 : q);
+        }
+        lut_ready = true;
     }
     const float scale = (float)kSize / (w > h ? w : h);
     const int sw = (int)(w * scale + 0.5f), sh = (int)(h * scale + 0.5f);
@@ -114,8 +123,8 @@ int yolo_detect_rgb(const uint8_t *rgb, int w, int h, float min_score, yolo_box 
         tab_w = w;
         tab_h = h;
     }
-    const float grey = lut[114];
-    float *pr = g_input, *pg = g_input + kSize * kSize, *pb = g_input + 2 * kSize * kSize;
+    const int8_t grey = lut[114];
+    int8_t *pr = g_input, *pg = g_input + kSize * kSize, *pb = g_input + 2 * kSize * kSize;
     for (int y = 0; y < kSize; y++) {
         const int sy = src_y[y];
         for (int x = 0; x < kSize; x++, pr++, pg++, pb++) {
@@ -133,7 +142,7 @@ int yolo_detect_rgb(const uint8_t *rgb, int w, int h, float min_score, yolo_box 
 
     std::array<SizesType, 4> sizes{1, 3, kSize, kSize};
     std::array<DimOrderType, 4> dim_order{0, 1, 2, 3};
-    TensorImpl impl(ScalarType::Float, sizes.size(), sizes.data(), g_input, dim_order.data());
+    TensorImpl impl(ScalarType::Char, sizes.size(), sizes.data(), g_input, dim_order.data());
     Tensor input(&impl);
     const uint32_t t1 = DWT->CYCCNT;
     ethos_npu_cycles_take();
@@ -141,21 +150,30 @@ int yolo_detect_rgb(const uint8_t *rgb, int w, int h, float min_score, yolo_box 
     const uint32_t t2 = DWT->CYCCNT;
     g_pre_us = cyc_to_us(t1 - t0);
     g_npu_us = cyc_to_us(t2 - t1);
-    g_hw_us = cyc_to_us(ethos_npu_cycles_take());   // the NPU alone; the rest is int8<->float on the CPU
+    g_hw_us = cyc_to_us(ethos_npu_cycles_take());   // the NPU alone; the rest is ExecuTorch overhead
     if (!outputs.ok() || outputs->size() != 3) {
         printf("yolo: forward failed (err=%u)\n", outputs.ok() ? 0u : (unsigned)outputs.error());
         return -1;
     }
 
     // The three head maps, strides 8, 16, 32: told apart by size, not trusted by order.
-    const float *maps[3] = {nullptr, nullptr, nullptr};
+    // Each output keeps its own scale and zero point.
+    static const float out_scale[3] = {YOLO_OUT0_SCALE, YOLO_OUT1_SCALE, YOLO_OUT2_SCALE};
+    static const int32_t out_zp[3] = {YOLO_OUT0_ZP, YOLO_OUT1_ZP, YOLO_OUT2_ZP};
+    const int8_t *maps[3] = {nullptr, nullptr, nullptr};
+    float map_scale[3] = {0, 0, 0};
+    int32_t map_zp[3] = {0, 0, 0};
     int hw[3] = {40, 20, 10};
     for (size_t i = 0; i < 3; i++) {
         const auto &ev = outputs->at(i);
-        if (!ev.isTensor() || ev.toTensor().scalar_type() != ScalarType::Float) return -1;
+        if (!ev.isTensor() || ev.toTensor().scalar_type() != ScalarType::Char) return -1;
         const Tensor t = ev.toTensor();
         for (int l = 0; l < 3; l++)
-            if (t.numel() == (64 + YOLO_CLASSES) * hw[l] * hw[l]) maps[l] = t.const_data_ptr<float>();
+            if (t.numel() == (64 + YOLO_CLASSES) * hw[l] * hw[l]) {
+                maps[l] = t.const_data_ptr<int8_t>();
+                map_scale[l] = out_scale[i];
+                map_zp[l] = out_zp[i];
+            }
     }
     if (!maps[0] || !maps[1] || !maps[2]) {
         printf("yolo: unexpected output shapes\n");
@@ -163,7 +181,7 @@ int yolo_detect_rgb(const uint8_t *rgb, int w, int h, float min_score, yolo_box 
     }
     waldo::Det dets[16];
     const int kept = waldo::decode(maps, hw, hw, kSize, min_score, kNmsIou, g_scratch, waldo::kMaxCandidates,
-                                   dets, 16);
+                                   dets, 16, nullptr, map_scale, map_zp);
     int n = kept < max ? kept : max;
     if (n > 16) n = 16;
     for (int i = 0; i < n; i++) {   // letterboxed 320 px -> the caller's pixels

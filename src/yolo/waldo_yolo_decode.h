@@ -5,7 +5,7 @@
 // confidence threshold, class-aware greedy NMS. It allocates nothing and touches no hardware: the caller passes the scratch
 // buffer, so YOU decide which memory it lives in. Reference implementation in Python: host/export/yolo_wrapper.py::decode().
 //
-// Tensor layout (float32, as produced by the .pte's dequantized outputs), for each of the 3 maps l = 0,1,2:
+// Tensor layout (float32, or int8 with per-map scale/zero point -- WALDO exports int8 outputs), for each of the 3 maps l = 0,1,2:
 //     maps[l][c * H * W + y * W + x],  c in [0, 64 + kNumClasses)
 //     c in [0, 64)    : box distances, 4 sides (left, top, right, bottom) x 16 DFL bins; side k bin j at channel k*16 + j
 //     c in [64, 64+NC): class logits (sigmoid applied here), order = waldo::kClassNames
@@ -33,30 +33,34 @@ static inline float iou(const Det& a, const Det& b) {
 // scratch: caller-owned array of >= scratch_cap Det (use kMaxCandidates). out: caller-owned array of out_cap Det.
 // Returns the number of detections kept after NMS, at most out_cap (highest score first; WALDO: NMS stops when out is full).
 // *dropped (optional) = candidates that did not fit in scratch (0 with scratch_cap >= kMaxCandidates at imgsz 320).
-static inline int decode(const float* const maps[3], const int h[3], const int w[3], int imgsz, float conf, float iou_thr,
-                         Det* scratch, int scratch_cap, Det* out, int out_cap, int* dropped = nullptr) {
+// T = float, or int8_t with scale[l] / zp[l] (value = (q - zp) * scale; the class argmax runs on the raw values).
+template <typename T>
+static inline int decode(const T* const maps[3], const int h[3], const int w[3], int imgsz, float conf, float iou_thr,
+                         Det* scratch, int scratch_cap, Det* out, int out_cap, int* dropped = nullptr,
+                         const float* scale = nullptr, const int32_t* zp = nullptr) {
     int n = 0, overflow = 0;
     for (int l = 0; l < 3; l++) {
         const int H = h[l], W = w[l], HW = H * W;
         const float stride = (float)imgsz / (float)H;
-        const float* m = maps[l];
+        const T* m = maps[l];
+        const float sc = scale ? scale[l] : 1.0f, z = zp ? (float)zp[l] : 0.0f;
         for (int y = 0; y < H; y++) {
             for (int x = 0; x < W; x++) {
                 const int p = y * W + x;
-                float best = -1e30f; int bc = 0;
-                for (int c = 0; c < kNumClasses; c++) {
-                    const float v = m[(4 * kRegMax + c) * HW + p];
+                T best = m[4 * kRegMax * HW + p]; int bc = 0;
+                for (int c = 1; c < kNumClasses; c++) {
+                    const T v = m[(4 * kRegMax + c) * HW + p];
                     if (v > best) { best = v; bc = c; }
                 }
-                const float score = 1.0f / (1.0f + expf(-best));
+                const float score = 1.0f / (1.0f + expf(-((float)best - z) * sc));
                 if (score <= conf) continue;
                 float d[4];
                 for (int k = 0; k < 4; k++) {
                     float mx = -1e30f;
-                    for (int j = 0; j < kRegMax; j++) mx = fmaxf(mx, m[(k * kRegMax + j) * HW + p]);
+                    for (int j = 0; j < kRegMax; j++) mx = fmaxf(mx, ((float)m[(k * kRegMax + j) * HW + p] - z) * sc);
                     float sum = 0.f, ex = 0.f;
                     for (int j = 0; j < kRegMax; j++) {
-                        const float e = expf(m[(k * kRegMax + j) * HW + p] - mx);
+                        const float e = expf(((float)m[(k * kRegMax + j) * HW + p] - z) * sc - mx);
                         sum += e; ex += e * (float)j;
                     }
                     d[k] = ex / sum;
