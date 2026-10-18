@@ -77,7 +77,8 @@ def load_corpus(k, skip_texts=()):
             a = a if j["kind"] == "sentence" else trim(a)
             if len(a) < 1600:
                 continue
-            out[j["split"]].append((a, j["label"], j["kind"], "el:" + j["voice_id"], "el"))
+            lab, kind = (("_unknown_", "conf") if j["label"] in V.DROPPED else (j["label"], j["kind"]))
+            out[j["split"]].append((a, lab, kind, "el:" + j["voice_id"], "el"))
     say = k / "tts_say"
     if (say / "manifest.jsonl").exists():
         for line in (say / "manifest.jsonl").read_text().splitlines():
@@ -87,6 +88,8 @@ def load_corpus(k, skip_texts=()):
             a = read_wav(j["path"])
             a = a if j["kind"] == "sentence" else trim(a)
             if len(a) < 1600:
+                continue
+            if j["label"] in V.DROPPED:
                 continue
             out[j["split"]].append((a, j["label"], j["kind"], "say:" + j["voice"].split(" (")[0], "say"))
     return out

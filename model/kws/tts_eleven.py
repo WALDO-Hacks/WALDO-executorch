@@ -86,7 +86,12 @@ def plan_voices(out, seed=20261018):
     return voices
 
 
-def jobs(voices, seed=1):
+def jobs(voices, seed=1, labels=None):
+    """labels: only word clips for these (new words, new forms), from their own random stream
+    so the clips already made keep their keys."""
+    if labels:
+        yield from label_jobs(voices, labels)
+        return
     rng = random.Random(seed)
     models = [m for m, w in MODELS for _ in range(w)]
     for v in voices:
@@ -105,6 +110,25 @@ def jobs(voices, seed=1):
             yield job("sentence", "_unknown_", t)
 
 
+def label_jobs(voices, labels, seed=4):
+    rng = random.Random(seed)
+    models = [m for m, w in MODELS for _ in range(w)]
+    for v in voices:
+        held = v["split"] != "train"
+        for w in labels:
+            forms = V.SPOKEN[w]
+            n = 2 if held else min(len(forms), 6)
+            for t in rng.sample(forms, n):
+                yield {"voice_id": v["voice_id"], "voice": v["name"], "split": v["split"], "kind": "word",
+                       "label": w, "text": t, "model": rng.choice(models),
+                       "speed": round(rng.uniform(0.85, 1.15), 2), "stability": round(rng.uniform(0.3, 0.8), 2)}
+        if not held:   # the new near misses
+            for t in rng.sample(V.CONFUSABLE[-8:], 3):
+                yield {"voice_id": v["voice_id"], "voice": v["name"], "split": v["split"], "kind": "conf",
+                       "label": "_unknown_", "text": t, "model": rng.choice(models),
+                       "speed": round(rng.uniform(0.85, 1.15), 2), "stability": round(rng.uniform(0.3, 0.8), 2)}
+
+
 def key_of(j):
     return hashlib.sha1(json.dumps([j[k] for k in ("voice_id", "text", "model", "speed", "stability")]).encode()).hexdigest()
 
@@ -116,10 +140,11 @@ def main():
     ap.add_argument("--max-credits", type=float, default=30000)
     ap.add_argument("--threads", type=int, default=6)
     ap.add_argument("--plan-only", action="store_true")
+    ap.add_argument("--labels", help="comma list: only word clips for these labels")
     a = ap.parse_args()
     (a.out / "clips").mkdir(parents=True, exist_ok=True)
     voices = plan_voices(a.out)
-    todo = list(jobs(voices))
+    todo = list(jobs(voices, labels=a.labels.split(",") if a.labels else None))
     for s in ("train", "val", "test"):
         vs = [v for v in voices if v["split"] == s]
         print(f"{s}: {len(vs)} voices, {sum(1 for j in todo if j['split'] == s)} clips; accents "

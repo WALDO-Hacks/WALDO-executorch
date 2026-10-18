@@ -7,12 +7,12 @@
 // patrol, hey_waldo), src/kws_pte.c and he/kws_pte_he.c, with the per-word switches and
 // thresholds in src/kws_labels.h.
 //
-// MicroNet stays the default: KWS v2 missed some of its acceptance gates (model/kws/README.md).
-// To try KWS v2, change the default below to WALDO_KWS_V2 (or pass -DWALDO_KWS_V2 to BOTH
-// images), then rebuild and reflash both.
+// KWS v2 (run r4) is the default; MicroNet stays as the fallback (WALDO_KWS_MICRONET).
+// To go back, change the default below to WALDO_KWS_MICRONET (or pass it to BOTH images),
+// then rebuild and reflash both.
 #pragma once
 #if !defined(WALDO_KWS_MICRONET) && !defined(WALDO_KWS_V2)
-#define WALDO_KWS_MICRONET
+#define WALDO_KWS_V2
 #endif
 #if defined(WALDO_KWS_MICRONET) && defined(WALDO_KWS_V2)
 #error "WALDO_KWS_MICRONET and WALDO_KWS_V2 are both set"

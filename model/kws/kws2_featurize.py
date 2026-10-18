@@ -34,7 +34,8 @@ def build_jobs(split, copies, rng):
         if kind == "word":
             c = (copies if src == "el" else max(2, copies - 2)) if train else 2
             jobs += [("tts", i, D.LABEL_ID[label])] * c
-            jobs += [("partial", i, D.UNK)]
+            if label not in V.MULTI:
+                jobs += [("partial", i, D.UNK)]
         elif kind == "conf":
             jobs += [("tts", i, D.UNK)] * (3 if train else 1)
         else:

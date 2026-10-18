@@ -7,8 +7,8 @@ Two models, one switch (`src/kws_model.h`, for both images):
 
 | Model | Labels | Files |
 |---|---|---|
-| **KWS v2** (opt-in: `WALDO_KWS_V2`) | 10 commands: down go left no off on right stop up yes; 10 objects: person cup bottle phone laptop book backpack keyboard dog cat; home, patrol, hey_waldo; `_silence_`, `_unknown_` (25) | `src/kws_pte.c`, `he/kws_pte_he.c` |
-| MicroNet-M (`WALDO_KWS_MICRONET`, the default) | the 10 commands, `_silence_`, `_unknown_` (12) | `src/kws_pte_micronet.c`, `he/kws_pte_he_micronet.c` |
+| **KWS v2** (`WALDO_KWS_V2`, the default) | 10 commands: down go left no off on right stop up yes; 8 objects: cup bottle phone laptop book backpack keyboard chair; home, patrol, hey_waldo; `_silence_`, `_unknown_` (23) | `src/kws_pte.c`, `he/kws_pte_he.c` |
+| MicroNet-M (`WALDO_KWS_MICRONET`, the fallback) | the 10 commands, `_silence_`, `_unknown_` (12) | `src/kws_pte_micronet.c`, `he/kws_pte_he_micronet.c` |
 
 `src/kws_labels.h` (generated) holds both label sets, a per-word on/off switch and a
 per-word threshold. The orchestrator maps the words (`src/waldo/orchestrator.cpp`): an object
@@ -59,6 +59,23 @@ $PY -I model/kws/kws2_eval.py $K --weights $K/runs/r1/best.npz
 $PY model/kws/export_kws.py cmsis-executorch.cbuild-mlops.yml --weights $K/runs/r1/best.npz --calib $K/feats/val.npz
 $PY model/kws/export_kws.py cmsis-executorch.cbuild-mlops.yml --weights $K/runs/r1/best.npz --calib $K/feats/val.npz --he
 ```
+
+### Run r4 (2026-10-18): the venue's objects
+
+Fine-tuned from r3 (`--init`, head rows matched by name) on `feats4`. person, dog and cat
+dropped (their clips train as `_unknown_`), chair added; cup, bottle and phone get longer forms
+on the same label ("coffee cup", "plastic cup", "paper cup", "mug"; "water bottle"; "cell
+phone"), from 2251 new ElevenLabs clips (`tts_eleven.py --labels cup,bottle,phone,chair`, 5014
+credits) and new near misses (paper, plastic, coffee, water, cell, share, chain, cheer). Multi-word
+labels get no word-fragment negatives (the end of "paper cup" is "cup"). Thresholds from
+`kws2_thresholds.py --near-budget 1.0`; programs 163 KB (HP), 159 KB (HE).
+
+Held-out ElevenLabs voices, at the exported thresholds, clean / board levels: cup 78 / 57 %,
+coffee cup 95 / 45, plastic cup 84 / 38, paper cup 78 / 22, mug 23 / 0 (too few clips), bottle
+85 / 64, water bottle 96 / 51, phone 66 / 39, cell phone 83 / 40, chair 88 / 35 %.
+
+On the board (first try): cup, laptop, backpack, left, right, go and off heard and acted on;
+"up" false-triggers (14 times in 10 min, partly the end of "cup").
 
 ### Results (run r3, 2026-10-18)
 

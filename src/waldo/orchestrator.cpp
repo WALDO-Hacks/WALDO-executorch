@@ -285,7 +285,7 @@ bool sentry_step(const struct cam_frame *f, uint32_t now)
 struct voice_object { const char *word; int cls; };
 constexpr voice_object kVoiceObjects[] = {
     {"person", 0}, {"cup", 14},     {"bottle", 13},   {"phone", 24}, {"laptop", 20},
-    {"book", 25},  {"backpack", 11}, {"keyboard", 23}, {"dog", 3},    {"cat", 2},
+    {"book", 25},  {"backpack", 11}, {"keyboard", 23}, {"chair", 15}, {"dog", 3}, {"cat", 2},
 };
 
 // "home": SENTRY at home (pan 0, tilt 0); it patrols again after the usual quiet spell.

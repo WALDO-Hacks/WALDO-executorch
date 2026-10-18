@@ -10,9 +10,9 @@
 #define KWS_LABEL_ENABLED {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 #define KWS_LABEL_THRESHOLD_PCT {80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80}
 #else
-#define KWS_LABELS 25
-#define KWS_WORDS 23
-#define KWS_LABEL_NAMES {"down", "go", "left", "no", "off", "on", "right", "stop", "up", "yes", "person", "cup", "bottle", "phone", "laptop", "book", "backpack", "keyboard", "dog", "cat", "home", "patrol", "hey_waldo", "_silence_", "_unknown_"}
-#define KWS_LABEL_ENABLED {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1}
-#define KWS_LABEL_THRESHOLD_PCT {60, 60, 60, 70, 60, 65, 75, 60, 60, 65, 80, 80, 80, 80, 60, 60, 60, 80, 60, 80, 60, 65, 65, 80, 80}
+#define KWS_LABELS 23
+#define KWS_WORDS 21
+#define KWS_LABEL_NAMES {"down", "go", "left", "no", "off", "on", "right", "stop", "up", "yes", "cup", "bottle", "phone", "laptop", "book", "backpack", "keyboard", "chair", "home", "patrol", "hey_waldo", "_silence_", "_unknown_"}
+#define KWS_LABEL_ENABLED {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+#define KWS_LABEL_THRESHOLD_PCT {60, 75, 60, 75, 70, 90, 85, 60, 60, 75, 85, 90, 85, 60, 60, 65, 85, 70, 60, 60, 70, 80, 80}
 #endif
