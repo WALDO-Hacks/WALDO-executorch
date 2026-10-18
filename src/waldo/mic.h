@@ -10,7 +10,8 @@ extern "C" {
 
 int mic_init(void);   // 0 on success; capture runs from then on, in the background
 // Copies up to max unread mono samples (mic 0), oldest first, into out; returns how many.
-// The ring holds ~1 s: a reader that falls further behind loses the oldest audio.
+// The ring holds ~1 s (0.5 s with WALDO_HE_POOLS_DTCM): a reader that falls further behind
+// loses the oldest audio.
 uint32_t mic_read(int16_t *out, uint32_t max);
 // RMS of each mic since the last call (full scale 32768), and PDM FIFO overflows.
 void mic_levels(float *rms0, float *rms1, uint32_t *errors);
