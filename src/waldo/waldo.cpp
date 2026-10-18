@@ -57,7 +57,7 @@ static bool orch_running;   // waldo_home() starts the orchestrator; the boot se
 
 // For the on-screen status: the last word heard, frames per second, last NPU and frame time.
 static const char *heard_word;
-static uint32_t heard_ms, last_npu_us, last_frame_us;
+static uint32_t heard_ms, last_npu_us, last_frame_us, last_yolo_ms;
 static float shown_fps;
 extern "C" void SysTick_Handler(void) { ms++; }
 
@@ -150,8 +150,17 @@ void waldo_poll(void)
             fps_t0 = now;
         }
         const char *detail = orch_detail();   // "scan 3/10" while patrolling
+        if (n >= 0) last_yolo_ms = now;
+        bool ears_ok = false;
+        float ears_busy = 0;
+        bool two_brain = false;
+#ifdef WALDO_TWO_BRAIN
+        two_brain = true;
+        ears_ok = brain_hp_status(now, &ears_busy);
+#endif
         const struct view_status vs = {orch_state(), detail ? detail : detect_class_name(tracker_target_class()), heard_word,
-                                       now - heard_ms, shown_fps, last_npu_us, last_frame_us};
+                                       now - heard_ms, shown_fps, last_npu_us, last_frame_us,
+                                       now - last_yolo_ms < 500, two_brain, ears_ok, ears_busy};
         waldo_view_status(&vs);
     }
     if (now - last_stats >= 2000) {

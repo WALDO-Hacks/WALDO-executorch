@@ -19,7 +19,7 @@ typedef struct {
 // just touches the deck, read that angle (0 = level, negative = down; the boot log prints
 // the commanded tilt), then add 5 degrees of margin (e.g. touches at -50 -> -45).
 // PLACEHOLDER until measured.
-static const float TILT_MIN_DEG = -45;
+static const float TILT_MIN_DEG = -15;   // conservative until measured (the head hit at -45)
 static const float TILT_MAX_DEG = 30;
 static const float PAN_MIN_DEG = -90, PAN_MAX_DEG = 90;
 // Park ("off", and power-up): as far down as is safe. With the laser and flashlight always

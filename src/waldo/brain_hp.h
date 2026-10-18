@@ -15,6 +15,9 @@ bool brain_hp_selftest(uint32_t timeout_ms);
 int brain_hp_word(void);
 // One console line: is the HE alive, its mic levels and its NPU/MFCC time.
 void brain_hp_print(uint32_t window_ms);
+// For the screen: is the HE listening (alive, no error, heartbeat within 3 s), and how busy
+// its core was (MFCC + U55 time, %) over the last second or so. Call every frame.
+bool brain_hp_status(uint32_t now_ms, float *busy_pct);
 
 #ifdef __cplusplus
 }

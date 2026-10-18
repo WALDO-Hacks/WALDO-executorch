@@ -46,7 +46,7 @@ int main(int argc, char **argv)
         boxes.push_back({atoi(argv[i]), atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3]), 1.0f});
     const enum orch_state st = (enum orch_state)atoi(argv[3]);
     waldo_view_draw(&f, boxes.data(), (int)boxes.size(), 0, st);
-    const view_status vs = {st, "person", "left", 500, 18.4f, 29100, 47300};
+    const view_status vs = {st, "person", "left", 500, 18.4f, 21100, 47300, st == ORCH_TRACK, true, true, 9.6f};
     waldo_view_status(&vs);
     display_host_save(argv[4]);
     printf("frame %ux%u colour %ux%u -> %s\n", f.width, f.height, f.rgb_w, f.rgb_h, argv[4]);
