@@ -31,8 +31,10 @@ project:
         # src/LICENSE-ExecuTorch).
         - file: ./src/arm_embedded_module.cpp
         - file: ./src/arm_embedded_module.hpp
-        # Face detection: BlazeFace on the Ethos-U85 (model/model.py), decoding on the M55.
+        # Face detection: BlazeFace on the Ethos-U85 (model/model.py), decoding on the M55:
+        # the template's AI layer and the FVP self-test. The turret uses YOLOv8 instead.
         - file: ./src/face_detector.cpp
+          not-for-context: +DevKit-E8
         - file: ./src/face_detector.hpp
     # WALDO: turret servos, motion and tracking. Hardware lives on the DevKit-E8 only.
     - group: WALDO

@@ -55,6 +55,9 @@ inline uint32_t cyc_to_us(uint32_t c) { return c / (SystemCoreClock / 1000000u);
 
 bool yolo_init()
 {
+    // Cycle counter for the stage timing.
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
     g_module = std::make_unique<EmbeddedModule>(
         yolo_pte, yolo_pte_size, std::make_unique<BufferDataLoader>(yolo_pte, yolo_pte_size),
         std::make_unique<MemoryAllocator>(kMethodPool, g_method_pool),

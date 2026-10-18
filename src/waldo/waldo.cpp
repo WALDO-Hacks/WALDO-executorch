@@ -11,14 +11,13 @@
 #include "camlink_rx.h"
 #include "detector.h"
 #include "tracker.h"
-#include "face_detector.hpp"
 #include "board_display.h"
 #include "mic.h"
 #include "kws.hpp"
 #include "orchestrator.h"
 #include "view.h"
 
-// Per-stage timing (DWT cycle counter, started by face_detector_init): mean and worst
+// Per-stage timing (DWT cycle counter, started by kws_init / yolo_init): mean and worst
 // over each 2 s stats window, printed with the stats.
 enum { ST_LINK, ST_PRE, ST_NPU, ST_POST, ST_TRACK, ST_DISPLAY, ST_FRAME, ST_N };
 static const char *const st_name[ST_N] = {"camera rx", "preprocess", "NPU", "decode+NMS",

@@ -10,10 +10,10 @@ void waldo_view_draw(const struct cam_frame *f, const struct det_box *boxes, int
     if ((colour ? board_display_image(f->rgb, f->rgb_w, f->rgb_h, 3)
                 : board_display_image(f->pix, f->width, f->height, 1)) != 0)
         return;
-    // The target green (thick); other people and faces yellow; objects cyan.
+    // The target green (thick); other people yellow; objects cyan.
     for (int i = 0; i < n; i++) {
         const bool t = i == target && state == ORCH_TRACK;
-        const bool person = boxes[i].cls == 0 || boxes[i].cls == DET_FACE;
+        const bool person = boxes[i].cls == 0;
         const uint8_t r = t ? 0 : person ? 255 : 0, g = t ? 255 : person ? 200 : 200, b = t ? 0 : person ? 0 : 255;
         board_display_box(k * boxes[i].x, k * boxes[i].y, k * boxes[i].w, k * boxes[i].h, r, g, b, t ? 3 : 2);
     }

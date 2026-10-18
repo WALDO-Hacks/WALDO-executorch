@@ -5,12 +5,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// WALDO: a pan/tilt turret that points a flashlight at the faces it finds.
-// BlazeFace runs on the Ethos-U85 through ExecuTorch (model/model.py, src/face_detector.cpp).
+// WALDO: a voice-controlled pan/tilt turret that points a flashlight at the people and
+// objects it finds.
 //
-// Every target first runs a self-test on a face photo built into the image and prints
-// Test_result: PASS when it finds the face (this is what the FVP run shows). On the
-// DevKit-E8 it then runs the turret: ESP32 camera frames -> faces on the NPU -> servos.
+// On the DevKit-E8 the keyword spotter and YOLOv8n check themselves at boot (KWS_result,
+// YOLO_result), then the turret runs: ESP32 camera frames -> YOLOv8n on the NPU -> servos,
+// steered by voice. The FVP target runs the template's AI layer instead: BlazeFace on a
+// built-in face photo, Test_result: PASS when it finds the face.
 
 #include <cstdint>
 #include <cstdio>
@@ -18,9 +19,11 @@
 
 #include <executorch/runtime/platform/runtime.h>
 
+#ifndef WALDO_HW
 #include "face_detector.hpp"
 #include "model_pte.h"
 #include "test_face.h"
+#endif
 #ifdef WALDO_HW
 #include <cmath>
 
@@ -28,10 +31,12 @@
 #include CMSIS_device_header
 
 #include "kws.hpp"
+#include "kws_pte.h"
 #include "test_kws.h"
 #include "test_yolo.h"
 #include "waldo/jpeg_frame.h"
 #include "yolo_detector.hpp"
+extern "C" const unsigned long yolo_pte_size;
 #include "waldo/kws_mfcc.h"
 #include "waldo/waldo.h"
 
@@ -82,25 +87,10 @@ static bool yolo_self_test() {
 
 extern "C" int app_main(void) {
   executorch::runtime::runtime_init();
-  printf("WALDO face detector: BlazeFace, %lu byte ExecuTorch program on the Ethos-U85\n",
-         static_cast<unsigned long>(model_pte_size));
-
-  if (!face_detector_init()) {
-    printf("face detector init failed\n");
-    return 1;
-  }
-
-  face_box faces[4];
-  int n = face_detect_gray(test_face_128, 128, 128, faces, 4);
-  printf("Self-test: %d face(s), NPU inference %lu us\n", n,
-         static_cast<unsigned long>(face_detector_last_us()));
-  for (int i = 0; i < n; i++) {
-    printf("  face %d: x %.0f y %.0f w %.0f h %.0f, score %.2f\n", i, (double)faces[i].x,
-           (double)faces[i].y, (double)faces[i].w, (double)faces[i].h, (double)faces[i].score);
-  }
-  printf("Test_result: %s\n", n == 1 ? "PASS" : "FAIL");
-
 #ifdef WALDO_HW
+  // The turret: keyword spotting and YOLOv8 on the Ethos-U85, each checked at boot.
+  printf("WALDO: MicroNet KWS (%lu B) and YOLOv8n (%lu B) ExecuTorch programs on the Ethos-U85\n",
+         static_cast<unsigned long>(kws_pte_size), static_cast<unsigned long>(yolo_pte_size));
   if (kws_init()) {
     kws_self_test();
   } else {
@@ -118,6 +108,23 @@ extern "C" int app_main(void) {
       waldo_poll();
     }
   }
+#else
+  // FVP: the template's AI layer, BlazeFace, on a face photo built into the image.
+  printf("WALDO face detector: BlazeFace, %lu byte ExecuTorch program on the Ethos-U85\n",
+         static_cast<unsigned long>(model_pte_size));
+  if (!face_detector_init()) {
+    printf("face detector init failed\n");
+    return 1;
+  }
+  face_box faces[4];
+  int n = face_detect_gray(test_face_128, 128, 128, faces, 4);
+  printf("Self-test: %d face(s), NPU inference %lu us\n", n,
+         static_cast<unsigned long>(face_detector_last_us()));
+  for (int i = 0; i < n; i++) {
+    printf("  face %d: x %.0f y %.0f w %.0f h %.0f, score %.2f\n", i, (double)faces[i].x,
+           (double)faces[i].y, (double)faces[i].w, (double)faces[i].h, (double)faces[i].score);
+  }
+  printf("Test_result: %s\n", n == 1 ? "PASS" : "FAIL");
 #endif
   printf("\x04");  // EOT: ends the FVP run (semihosting exit); a board just sees a 0x04
   fflush(stdout);

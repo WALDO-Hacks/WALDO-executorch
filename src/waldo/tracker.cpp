@@ -19,7 +19,7 @@ static int target_cls = TRACK_PEOPLE;
 static bool is_target_class(int cls)
 {
     if (cls == DET_MOTION) return true;
-    if (target_cls == TRACK_PEOPLE) return cls == 0 || cls == DET_FACE;   // YOLO person, BlazeFace
+    if (target_cls == TRACK_PEOPLE) return cls == 0;   // YOLO's person
     return cls == target_cls;
 }
 
