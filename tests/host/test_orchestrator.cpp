@@ -348,6 +348,38 @@ int main()
     for (int i = 0; i < 400 && orch_state() != ORCH_TRACK; i++) step(1);
     CHECK(orch_state() == ORCH_TRACK);
 
+    // ---- KWS v2 words (model/kws/kws_vocab.py): objects, home, patrol, hey_waldo ----
+    CHECK(orch_object_class("cup") == 14 && orch_object_class("phone") == 24 && orch_object_class("person") == 0);
+    CHECK(orch_object_class("yes") == -1 && orch_object_class("home") == -1);
+    orch_word("cup", now);                      // an object word alone: follow cups
+    CHECK(orch_state() == ORCH_TRACK && tracker_target_class() == 14);
+    orch_word("stop", now);
+    CHECK(orch_state() == ORCH_HOLD);
+    orch_word("bottle", now);                   // from HOLD an object word also resumes
+    CHECK(orch_state() == ORCH_SENTRY && tracker_target_class() == 13);
+    orch_word("patrol", now);                   // the Z starts at once
+    CHECK(orch_state() == ORCH_SENTRY && orch_detail() && !strcmp(orch_detail(), "scan 1/10"));
+    CHECK(tracker_target_class() == 13);
+    step(20);
+    orch_word("home", now);                     // back home, patrol later
+    CHECK(orch_state() == ORCH_SENTRY && orch_detail() == nullptr);
+    CHECK(motion_target(AXIS_PAN) == 0 && motion_target(AXIS_TILT) == 0);
+    orch_word("person", now);
+    CHECK(tracker_target_class() == 0);
+    orch_word("off", now);                      // PARKED: object words, home and patrol do nothing
+    orch_word("phone", now);
+    orch_word("home", now);
+    orch_word("patrol", now);
+    CHECK(orch_state() == ORCH_PARKED && tracker_target_class() != 24);
+    orch_set_wake_required(true);
+    orch_word("on", now);                       // ignored without the wake word
+    CHECK(orch_state() == ORCH_PARKED);
+    orch_word("hey_waldo", now);                // the KWS label opens the window
+    CHECK(orch_listening(now));
+    orch_word("on", now);
+    CHECK(orch_state() == ORCH_SENTRY);
+    orch_set_wake_required(false);
+
     printf("orchestrator: all checks passed\n");
     return 0;
 }

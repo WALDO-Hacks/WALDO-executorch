@@ -68,9 +68,12 @@ constexpr size_t kTempPool = KWS_TEMP_POOL_SIZE;
 alignas(16) uint8_t g_method_pool[kMethodPool] KWS_POOL_ATTRIBUTES;
 alignas(16) uint8_t g_temp_pool[kTempPool] KWS_POOL_ATTRIBUTES;
 
-const char *const kLabels[KWS_LABELS] = {"down", "go",  "left", "no", "off",       "on",
-                                         "right", "stop", "up",  "yes", "_silence_", "_unknown_"};
-constexpr int kWords = 10;               // labels before _silence_ / _unknown_
+const char *const kLabels[KWS_LABELS] = KWS_LABEL_NAMES;
+constexpr int kWords = KWS_WORDS;        // labels before _silence_ / _unknown_
+// Per word: off (a word that failed its test stays in the model but is never reported) and
+// the averaged probability it needs, in hundredths (src/kws_labels.h).
+constexpr unsigned char kEnabled[KWS_LABELS] = KWS_LABEL_ENABLED;
+constexpr unsigned char kThresholdPct[KWS_LABELS] = KWS_LABEL_THRESHOLD_PCT;
 
 std::unique_ptr<EmbeddedModule> g_module;
 alignas(16) float g_input[KWS_FRAMES * KWS_COEFFS];
@@ -153,7 +156,8 @@ int kws_classify(const float *mfcc, float *probs)
 namespace {
 constexpr int kClassifyEvery = 10;      // MFCC frames (20 ms each) between classifications
 constexpr int kSmooth = 3;              // classifications averaged
-constexpr float kThreshold = 0.80f;     // averaged probability to accept a word (0.80: half the false triggers of 0.70 in the TTS test, same hit rate)
+// Averaged probability to accept a word: kThresholdPct (0.80 for MicroNet: half the false
+// triggers of 0.70 in the TTS test, same hit rate).
 constexpr uint32_t kRepeatMs = 1000;    // the same word again only after this
 
 int16_t g_frame[KWS_FRAME];             // the last 640 samples
@@ -207,7 +211,7 @@ int kws_listen(uint32_t now_ms)
             avg[i] /= g_hist_n;
             if (avg[i] > avg[best]) best = i;
         }
-        if (best < kWords && avg[best] >= kThreshold &&
+        if (best < kWords && kEnabled[best] && avg[best] * 100.0f >= kThresholdPct[best] &&
             (best != g_last_word || now_ms - g_last_word_ms > kRepeatMs)) {
             g_last_word = best;
             g_last_word_ms = now_ms;

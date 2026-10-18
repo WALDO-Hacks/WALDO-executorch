@@ -27,14 +27,18 @@ void orch_init(uint32_t now_ms);
 // A new camera frame: runs what the state needs. Fills boxes (at most max) with what the
 // detector found (n_out, -1 if it didn't run this frame) for the screen.
 void orch_frame(const struct cam_frame *f, uint32_t now_ms, struct det_box *boxes, int max, int *n_out);
-// A recognised voice command (kws_label() text).
 // Every main-loop pass: time-outs that must work without camera frames.
 void orch_tick(uint32_t now);
+// A recognised voice command (kws_label() text). Besides the words above: an object word
+// ("cup", "phone", ... orch_object_class) follows that YOLO class (and resumes from HOLD);
+// "home" returns to SENTRY at home; "patrol" starts the patrol at once; "hey_waldo" is
+// orch_wake().
 void orch_word(const char *word, uint32_t now_ms);
+// The YOLO class an object word tracks, or -1 if the word is not an object.
+int orch_object_class(const char *word);
 // Track this YOLO class (a command by name, "track cup"; 0 = people). It is kept until
 // another is chosen, also through "stop"/"go" and a lost target; "off" then "on" starts
-// again with people. Ignored while PARKED. Nothing calls it by voice yet: the keyword
-// spotter has no object words.
+// again with people. Ignored while PARKED. By voice: an object word (orch_word).
 void orch_track_class(int cls, uint32_t now_ms);
 // Wake word ("Hey Waldo"). When required (for the two-brain build, once the HE reports a
 // wake detector), a command acts only while listening: orch_wake() opens a 5 s window

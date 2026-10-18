@@ -76,6 +76,7 @@ project:
         - file: ./ethos_setup.c
         - file: ./ethosu_cb_dcache.c
         - file: ./kws_pte_he.c
+        - file: ./kws_pte_he_micronet.c
     - group: Shared
       files:
         - file: ../src/kws.cpp

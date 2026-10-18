@@ -280,7 +280,36 @@ bool sentry_step(const struct cam_frame *f, uint32_t now)
     return false;
 }
 
+// Object words of the keyword spotter (model/kws/kws_vocab.py) -> YOLO class
+// (src/yolo/waldo_yolo_classes.h).
+struct voice_object { const char *word; int cls; };
+constexpr voice_object kVoiceObjects[] = {
+    {"person", 0}, {"cup", 14},     {"bottle", 13},   {"phone", 24}, {"laptop", 20},
+    {"book", 25},  {"backpack", 11}, {"keyboard", 23}, {"dog", 3},    {"cat", 2},
+};
+
+// "home": SENTRY at home (pan 0, tilt 0); it patrols again after the usual quiet spell.
+void go_home(uint32_t now)
+{
+    if (state != ORCH_SENTRY) enter(ORCH_SENTRY, now);
+    tracker_lose_target();
+    motion_set(AXIS_PAN, 0);
+    motion_set(AXIS_TILT, 0);
+    last_move_ms = now;
+    patrol.phase = P_HOME;
+    patrol.t = now;
+    patrol.investigate = 0;
+    have_prev = false;
+}
+
 }  // namespace
+
+int orch_object_class(const char *word)
+{
+    for (const voice_object &o : kVoiceObjects)
+        if (!strcmp(word, o.word)) return o.cls;
+    return -1;
+}
 
 const char *orch_detail(void)
 {
@@ -355,6 +384,10 @@ void orch_tick(uint32_t now)
 void orch_word(const char *w, uint32_t now)
 {
     printf("orch: heard \"%s\" in %s\n", w, orch_state_name(state));
+    if (!strcmp(w, "hey_waldo")) {   // the wake word as a keyword-spotter label
+        orch_wake(now);
+        return;
+    }
     if (wake_required) {
         const bool safety = !strcmp(w, "stop") || !strcmp(w, "off");   // never behind the wake word
         if (!safety && !orch_listening(now)) {
@@ -388,6 +421,20 @@ void orch_word(const char *w, uint32_t now)
             enter(ORCH_TRACK, now);   // the detector runs on every frame there
             last_target_ms = now;
         }
+    } else if (orch_object_class(w) >= 0) {
+        // An object word alone: follow that kind of thing ("cup"). From HOLD it also resumes.
+        if (state == ORCH_PARKED) return;
+        orch_track_class(orch_object_class(w), now);
+        if (state == ORCH_HOLD) enter(ORCH_SENTRY, now);
+    } else if (!strcmp(w, "home")) {
+        if (state != ORCH_PARKED) go_home(now);
+    } else if (!strcmp(w, "patrol")) {
+        if (state == ORCH_PARKED) return;
+        if (state != ORCH_SENTRY) enter(ORCH_SENTRY, now);
+        tracker_lose_target();
+        patrol.lap = 0;
+        patrol.investigate = 0;
+        go_to_stop(0, now);   // start the Z at once, no quiet spell at home first
     } else {
         int dir = !strcmp(w, "left") ? TRACK_SWITCH_LEFT : !strcmp(w, "right") ? TRACK_SWITCH_RIGHT
                 : !strcmp(w, "up") ? TRACK_SWITCH_UP : !strcmp(w, "down") ? TRACK_SWITCH_DOWN : 0;

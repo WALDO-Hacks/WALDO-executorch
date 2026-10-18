@@ -1,13 +1,14 @@
-// Keyword spotting with MicroNet-M on the Ethos-U85 through ExecuTorch (model/kws/).
-// Words: down go left no off on right stop up yes (+ _silence_, _unknown_).
+// Keyword spotting on the Ethos-U through ExecuTorch (model/kws/). The labels come from
+// src/kws_labels.h: KWS v2 (commands, objects, home, patrol, hey_waldo) by default, Arm's
+// MicroNet-M words with WALDO_KWS_MICRONET (src/kws_model.h). _silence_ and _unknown_ last.
 #pragma once
 #include <stdint.h>
 
-#define KWS_LABELS 12
+#include "kws_labels.h"
 
 // Loads the .pte into the ExecuTorch runtime. Call once, after runtime_init().
 bool kws_init();
-// Classifies 1 s of audio given as 49 x 10 MFCCs (src/waldo/kws_mfcc.h). Writes the 12
+// Classifies 1 s of audio given as 49 x 10 MFCCs (src/waldo/kws_mfcc.h). Writes the KWS_LABELS
 // softmax probabilities to probs; returns the most likely label index, -1 on error.
 int kws_classify(const float *mfcc, float *probs);
 const char *kws_label(int index);

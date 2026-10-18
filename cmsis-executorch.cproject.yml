@@ -64,6 +64,7 @@ project:
         - file: ./src/waldo/kws_mfcc.c
         - file: ./src/kws.cpp
         - file: ./src/kws_pte.c
+        - file: ./src/kws_pte_micronet.c
         - file: ./src/yolo_detector.cpp
         - file: ./src/yolo_pte.S
           define:
@@ -79,6 +80,7 @@ project:
         - file: ./src/waldo/kws_mfcc.c
         - file: ./src/kws.cpp
         - file: ./src/kws_pte.c
+        - file: ./src/kws_pte_micronet.c
         - file: ./src/yolo_detector.cpp
         - file: ./src/yolo_pte.S
           define:
