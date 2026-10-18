@@ -373,7 +373,7 @@ int main()
         for (int i = 0; i < 40; i++) { p.pan += 60 * 0.066f; frame_of(&p, 1); }
         const float at_limit = motion_pos(AXIS_PAN);
         char first[24] = "home";
-        for (int i = 0; i < 90 && orch_state() == ORCH_TRACK; i++) frame_of(&p, 1);   // up to 6 s
+        for (int i = 0; i < 150 && orch_state() == ORCH_TRACK; i++) frame_of(&p, 1);   // up to 10 s
         if (orch_detail()) snprintf(first, sizeof first, "%s", orch_detail());
         printf("ran past the pan limit: turret stopped at %.0f, then %s from %s (pan %+.0f)\n", at_limit,
                orch_state_name(orch_state()), first, (double)motion_target(AXIS_PAN));
@@ -381,19 +381,28 @@ int main()
         CHECK(at_limit <= 90.01f && orch_state() == ORCH_SENTRY && !strcmp(first, "scan 1/10"));
     }
 
-    // 12. Vanishes while standing still (walks behind a wall): no search sweep.
+    // 12. Vanishes while standing still (walks behind a wall): the turret holds for 1.5 s, then
+    //     looks 20 deg to each side of where it was, slowly, and is still tracking.
     {
         person p = {-20, 0, false, 0};
         start_on(p);
+        const float at = motion_pos(AXIS_PAN);
         p.hidden = true;
         float lo = 1e9f, hi = -1e9f;
-        for (int i = 0; i < 45; i++) {   // 3 s, before the 4 s give-up
+        for (int i = 0; i < 20; i++) {   // 1.3 s; the commanded pan (the turret may still be arriving)
+            frame_of(&p, 1);
+            lo = fminf(lo, motion_target(AXIS_PAN));
+            hi = fmaxf(hi, motion_target(AXIS_PAN));
+        }
+        printf("vanished while standing: commanded pan moved %.1f deg in the first 1.3 s\n", hi - lo);
+        CHECK(hi - lo < 3);
+        for (int i = 0; i < 90; i++) {   // 6 s more
             frame_of(&p, 1);
             lo = fminf(lo, motion_pos(AXIS_PAN));
             hi = fmaxf(hi, motion_pos(AXIS_PAN));
         }
-        printf("vanished while standing: turret moved %.1f deg in 3 s\n", hi - lo);
-        CHECK(hi - lo < 3);
+        printf("then looked around: pan %+.0f..%+.0f around %+.0f, %s\n", lo, hi, at, orch_state_name(orch_state()));
+        CHECK(hi > at + 15 && lo < at - 15 && hi < at + 25 && lo > at - 25 && orch_state() == ORCH_TRACK);
     }
 
     // 12b. The board 3 incident: walking, then gone in the middle of the picture (behind

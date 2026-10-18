@@ -1,27 +1,26 @@
 #include "motion.h"
 
+#include <math.h>
 #include <stdio.h>
 
 struct AxisState {
   servo_cal_t cal;
   float pos, target;
+  float vel;   // deg/s, for eased moves
 };
 
 static AxisState ax[2];
 static pwm_write_fn write_pwm;
+static bool eased;
+constexpr float kEaseAccel = 300;   // deg/s^2: full speed in 0.4 s, and as gently to a stop
 
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 // Every pulse goes through here: the limits are enforced again at the last step, so no
 // caller (park, tracker, voice, slew, a trimmed centre) can drive past them.
 static float deg_to_us(const AxisState &a, float deg) {
+  // No printf here: motion_tick() runs in the timer interrupt. motion_set() reports clamps.
   const float lim = clampf(deg, a.cal.min_deg, a.cal.max_deg);
-  static bool told;
-  if (lim != deg && !told) {
-    printf("motion: %.1f deg clamped to %.1f (limits %.0f..%.0f)\n", (double)deg, (double)lim,
-           (double)a.cal.min_deg, (double)a.cal.max_deg);
-    told = true;
-  }
   return a.cal.center_us + a.cal.sign * lim * a.cal.us_per_deg;
 }
 
@@ -61,10 +60,30 @@ void motion_tick(float dt_s) {
   float step = SLEW_DEG_PER_S * dt_s;
   for (int i = 0; i < 2; i++) {
     AxisState &a = ax[i];
-    a.pos += clampf(a.target - a.pos, -step, step);
+    const float to = a.target - a.pos;
+    if (eased && dt_s > 0) {
+      // Speed up at kEaseAccel, cruise at the slew rate, and slow down in time to stop on the
+      // target (v^2 = 2 a d), so a move starts and ends gently instead of with a jolt.
+      float want = sqrtf(2 * kEaseAccel * fabsf(to));
+      if (want > SLEW_DEG_PER_S) want = SLEW_DEG_PER_S;
+      want = to < 0 ? -want : want;
+      a.vel += clampf(want - a.vel, -kEaseAccel * dt_s, kEaseAccel * dt_s);
+      float d = a.vel * dt_s;
+      if (fabsf(d) >= fabsf(to) || fabsf(to) < 0.05f) {   // arrived
+        d = to;
+        a.vel = 0;
+      }
+      a.pos += d;
+    } else {
+      const float d = clampf(to, -step, step);
+      a.pos += d;
+      a.vel = dt_s > 0 ? d / dt_s : 0;   // so an eased move that follows starts from this speed
+    }
     write_pwm(i, deg_to_us(a, a.pos));
   }
 }
+
+void motion_set_eased(bool on) { eased = on; }
 
 float motion_pos(int axis) { return ax[axis].pos; }
 float motion_target(int axis) { return ax[axis].target; }

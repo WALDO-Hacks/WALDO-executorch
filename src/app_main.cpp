@@ -128,7 +128,9 @@ extern "C" int app_main(void) {
     printf("object detector init failed\n");
   }
   if (waldo_init() == 0) {
-    waldo_servo_test();
+#ifdef WALDO_SERVO_TEST
+    waldo_servo_test();   // pan/tilt wiggle and the loop delay probe; off for a smooth start
+#endif
     waldo_home();
     while (true) {
       waldo_poll();

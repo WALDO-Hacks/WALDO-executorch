@@ -130,16 +130,16 @@ int main()
     // Only objects in view (no person): not a target, so TRACK times out to SENTRY.
     script[0] = {60, 50, 16, 16, 0.9f, 15};   // a chair
     script_n = 1;
-    step(60);
+    step(100);   // 10 s: past the 8 s give-up
     CHECK(orch_state() == ORCH_SENTRY);
 
     // The camera stops sending while tracking: no frames, so orch_frame() never runs;
     // orch_tick() still gives up after the lost-target time.
     script[0] = {80, 50, 20, 20, 0.9f, 0};
     script_n = 1;
-    step(8);
+    for (int i = 0; i < 60 && orch_state() != ORCH_TRACK; i++) step(1);   // the patrol finds them
     CHECK(orch_state() == ORCH_TRACK);
-    for (int i = 0; i < 350; i++) {   // 7 s of main-loop passes, no frames
+    for (int i = 0; i < 550; i++) {   // 11 s of main-loop passes, no frames
         now += 20;
         orch_tick(now);
     }
@@ -165,9 +165,9 @@ int main()
     orch_word("stop", now);
     orch_word("go", now);
     CHECK(orch_state() == ORCH_TRACK && tracker_target_class() == 14);
-    // The cup is gone (only the person is visible): after 4 s the patrol goes looking for cups.
+    // The cup is gone (only the person is visible): after 8 s the patrol goes looking for cups.
     script_n = 1;
-    step(50);
+    step(90);
     CHECK(orch_state() == ORCH_SENTRY && tracker_target_class() == 14);
     // "no": back to people.
     orch_word("no", now);
@@ -306,18 +306,23 @@ int main()
     auto run_lap = [&](int *calls, float *pan_min, float *pan_max, float *tilt_max) {
         // until the patrol is back at stop 1 after stop 10
         bool seen_last = false;
-        detect_calls = 0;
+        bool looked[11] = {};   // stops where YOLO ran (it runs on every frame of a look)
         *pan_min = 1e9f, *pan_max = -1e9f, *tilt_max = -1e9f;
         for (int i = 0; i < 2000; i++) {
+            const int before = detect_calls;
             step(1);
             const char *d = orch_detail();
+            int stop_no;
+            if (detect_calls > before && d && sscanf(d, "scan %d/", &stop_no) == 1 && stop_no >= 1 && stop_no <= 10)
+                looked[stop_no] = true;
             if (d && !strcmp(d, "scan 10/10")) seen_last = true;
             if (d && seen_last && !strcmp(d, "scan 1/10")) break;
             *pan_min = fminf(*pan_min, motion_pos(AXIS_PAN));
             *pan_max = fmaxf(*pan_max, motion_pos(AXIS_PAN));
             *tilt_max = fmaxf(*tilt_max, motion_pos(AXIS_TILT));
         }
-        *calls = detect_calls;
+        *calls = 0;
+        for (bool l : looked) *calls += l;
     };
     int calls;
     float pmin, pmax, tmax;

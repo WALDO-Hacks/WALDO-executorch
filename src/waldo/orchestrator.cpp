@@ -10,8 +10,12 @@
 
 namespace {
 
-constexpr uint32_t kLostToSentryMs = 4000;   // no target this long while tracking -> sentry
-                                             // (the tracker coasts, then searches, before that)
+constexpr uint32_t kLostToSentryMs = 8000;   // no target this long while tracking -> sentry
+// A lost target: hold still, then look a little to each side of where it was, before patrolling.
+constexpr uint32_t kHoldLostMs = 1500;
+constexpr float kLocalLookDeg = 20;
+constexpr uint32_t kLocalLookStepMs = 2000;  // left, right, back to the middle
+
 constexpr int kSentryDetectEvery = 2;        // frames (YOLO is ~30 ms with int8 I/O)
 constexpr float kNudgeDeg = 10.0f;
 
@@ -62,6 +66,8 @@ uint8_t prev[CAM_MAX_W * CAM_MAX_H];
 bool have_prev;
 uint16_t prev_w, prev_h;
 uint32_t n_motion;
+float anchor_pan, anchor_tilt;   // where the turret was when the target was last seen
+int local_step;
 
 void go_to_stop(int i, uint32_t now);
 
@@ -82,6 +88,7 @@ void enter(enum orch_state s, uint32_t now)
     state = s;
     state_since = now;
     frames_in_state = 0;
+    motion_set_eased(s != ORCH_TRACK);   // patrol, park, hold: eased moves; tracking: direct
     if (s == ORCH_PARKED) {
         motion_set(AXIS_PAN, 0);
         motion_set(AXIS_TILT, PARK_TILT);   // as low as is safe for the laser (servo_cal.h)
@@ -107,8 +114,7 @@ void enter(enum orch_state s, uint32_t now)
         patrol.investigate = 0;
     } else if (s == ORCH_HOLD) {
         before_hold = state_before_enter;
-        // The target's speed goes stale while held: "go" must not coast or search on it. The
-        // latch stays, so "go" resumes on the same person.
+        // The target is kept, so "go" resumes on the same one.
         tracker_pause();
         // Freeze where the turret is now, not where it was heading.
         motion_set(AXIS_PAN, motion_pos(AXIS_PAN));
@@ -200,6 +206,7 @@ void go_to_stop(int i, uint32_t now)
     patrol.stop = i;
     patrol.phase = P_MOVE;
     patrol.t = now;
+    motion_set_eased(true);
     motion_set(AXIS_PAN, kStops[i].pan);
     motion_set(AXIS_TILT, kStops[i].tilt);
     last_move_ms = now;
@@ -266,8 +273,9 @@ bool sentry_step(const struct cam_frame *f, uint32_t now)
             const int next = (patrol.stop + 1) % kNumStops;
             if (next == 0) patrol.lap++;
             go_to_stop(next, now);
+            return false;
         }
-        return false;
+        return patrol.run_yolo;   // keep looking for the whole look, not one frame
     }
     return false;
 }
@@ -317,15 +325,29 @@ void orch_frame(const struct cam_frame *f, uint32_t now, struct det_box *boxes, 
     if (tracker_update(boxes, n, f->width, f->height, now)) {
         last_target_ms = now;
         last_move_ms = now;
+        motion_set_eased(false);
+        anchor_pan = motion_pos(AXIS_PAN);
+        anchor_tilt = motion_pos(AXIS_TILT);
+        local_step = 0;
         if (state == ORCH_SENTRY) enter(ORCH_TRACK, now);
     } else if (state == ORCH_TRACK && now - last_target_ms > kLostToSentryMs) {
         enter(ORCH_SENTRY, now);
+    } else if (state == ORCH_TRACK && now - last_target_ms > kHoldLostMs) {
+        // Lost: look left of where it was, then right, then back, slowly (+pan = left).
+        const int step = 1 + (int)((now - last_target_ms - kHoldLostMs) / kLocalLookStepMs);
+        if (step != local_step && step <= 3) {
+            local_step = step;
+            static const float off[] = {0, kLocalLookDeg, -kLocalLookDeg, 0};
+            motion_set_eased(true);
+            motion_set(AXIS_PAN, anchor_pan + off[step]);
+            motion_set(AXIS_TILT, anchor_tilt);
+            printf("orch: lost, looking %s\n", step == 1 ? "left" : step == 2 ? "right" : "ahead");
+        }
     }
 }
 
 void orch_tick(uint32_t now)
 {
-    tracker_tick(now, state == ORCH_TRACK);
     // Frames stopped (camera unplugged) while tracking: orch_frame() never runs, so give up here.
     if (state == ORCH_TRACK && now - last_target_ms > kLostToSentryMs + 1000) enter(ORCH_SENTRY, now);
 }

@@ -1,6 +1,5 @@
-// From the team's integration branch (two-brain-waldo-integration), with tracker_tick() added,
-// the board's frame rates (10-15 fps) and the camera delay the tracker assumes (250 ms; the
-// boot "loop delay probe" measures the real one). OV3660 lenses are 55-57 deg across.
+// From the team's integration branch (two-brain-waldo-integration), with the board's frame
+// rates (10-15 fps) and a 250 ms camera delay. OV3660 lenses are 55-57 deg across.
 // Closed-loop host test of the steering chain: simulated camera -> tracker.cpp -> motion.cpp (limits + slew) -> turret pose -> camera.
 // The firmware sources are used unchanged. HOST simulation (no real optics, servos or timing jitter); it checks the signs, the gain
 // and the stability of the loop, not the turret. World target: azimuth a (+left), elevation e (+up), degrees; +pan = left, +tilt = up.
@@ -15,7 +14,7 @@
 
 const char *detect_class_name(int) { return "x"; }
 static void pwm(int, float) {}
-constexpr float kAssumedFov = 50;   // tracker.cpp's fov_long
+constexpr float kAssumedFov = 60;   // tracker.cpp's fov_long
 // A settled turret is within the tracker's 2 deg deadband (in its assumed degrees, so
 // 2 * true / assumed real degrees) plus about one frame of latency.
 static float settle_bound(float fov_true) { return 2.0f * fov_true / kAssumedFov + 1.5f; }
@@ -52,7 +51,6 @@ static Res run(const Scn &c)
             tracker_update(&b, vis ? 1 : 0, W, H, now);
             frames++; seen += vis;
         }
-        tracker_tick(now, true);   // the main loop's tick: feed-forward and position history
         motion_tick(0.02f);
         const float ep = a - motion_pos(AXIS_PAN), et = c.e0 - motion_pos(AXIS_TILT);
         if (c.a_rate == 0 && c.a0 > 0 && -ep > r.worst_pan_overshoot) r.worst_pan_overshoot = -ep;   // beyond the target
@@ -100,8 +98,8 @@ int main()
     { Scn c = {60, 100, 100, 15, 0, 0, 3, 11, 16}; Res r = run(c);
       CHECK(fabsf(r.err_pan) < settle_bound(60) && fabsf(r.err_tilt) < settle_bound(60)); }
 
-    // 5. latch: once it follows a person it never takes another one (however much bigger), until that person has been gone
-    //    for 4 s or a voice command changes it. A = small, centred; B = 2x as wide, 22 deg to the right (outside A's gate).
+    // 5. stickiness: the person it follows keeps a 4x bonus, so a somewhat bigger newcomer doesn't take over; a voice
+    //    command changes it. A = small, centred; B = about 2x the area of A, to the right.
     {
         const int W = 160, H = 120;
         uint32_t now = 1000;
@@ -109,7 +107,6 @@ int main()
         auto frame = [&](const det_box *b, int n) {   // one 10 fps detector frame
             now += 100;
             const bool r = tracker_update(b, n, W, H, now);
-            tracker_tick(now, true);
             motion_tick(0.1f);
             return r;
         };
@@ -118,37 +115,21 @@ int main()
                              tracker_reset_target(); for (int i = 0; i < 5; i++) frame(&A, 1); };
         // a. the bigger newcomer is ignored while A is in view; the turret stays on A
         fresh();
-        CHECK(tracker_latched());
         for (int i = 0; i < 30; i++) {
             const det_box ab[2] = {B, A};
             CHECK(frame(ab, 2) && tracker_target_index() == 1);
         }
         CHECK(fabsf(motion_target(AXIS_PAN)) < 3.0f);
-        // b. A disappears, only B in view: B is not taken at once (the gate of a still person grows 2 deg/s), and
-        //    once A has been gone for more than 4 s the latch ends and B is the next target.
-        for (int i = 0; i < 10; i++) CHECK(!frame(&B, 1));
-        CHECK(tracker_latched());
-        bool took = false;
-        int gone = 10;
-        for (; gone < 60 && !took; gone++) took = frame(&B, 1);
-        printf("latch test: B taken after A was gone %.1f s\n", gone / 10.0);
-        CHECK(took && tracker_latched() && tracker_target_index() == 0 && gone <= 43);
-        // c. A comes back in time (1 s away): same person, B still ignored.
-        fresh();
-        for (int i = 0; i < 10; i++) CHECK(!frame(&B, 1));
-        { const det_box ab[2] = {B, A}; CHECK(frame(ab, 2) && tracker_target_index() == 1); }
-        // d. a voice command moves the latch: "right" picks B and keeps it.
+        // d. a voice command moves the target: "right" picks B and keeps it.
         fresh();
         tracker_switch(TRACK_SWITCH_RIGHT, now);
         { const det_box ab[2] = {B, A}; CHECK(frame(ab, 2) && tracker_target_index() == 0); }
-        // e. "stop" pauses the tracker: the latch survives, and "go" resumes on A, not on the bigger B.
+        // e. "stop" pauses the tracker: the target survives, and "go" resumes on A, not on the bigger B.
         fresh();
         tracker_pause();
-        CHECK(tracker_latched());
         { const det_box ab[2] = {B, A}; CHECK(frame(ab, 2) && tracker_target_index() == 1); }
-        // f. "no" drops the latch: the next frame takes the biggest person (B).
+        // f. "no" drops the target: the next frame takes the biggest person (B).
         tracker_reset_target();
-        CHECK(!tracker_latched());
         { const det_box ab[2] = {B, A}; CHECK(frame(ab, 2) && tracker_target_index() == 0); }
     }
 

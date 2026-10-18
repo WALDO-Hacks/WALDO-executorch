@@ -60,7 +60,15 @@ static bool orch_running;   // waldo_home() starts the orchestrator; the boot se
 static const char *heard_word;
 static uint32_t heard_ms, last_npu_us, last_frame_us, last_yolo_ms;
 static float shown_fps;
-extern "C" void SysTick_Handler(void) { ms++; }
+static volatile bool servos_running;   // motion_init() done: the tick drives the servos
+// The servos move from here at a steady 50 Hz (their pulse rate), not from waldo_poll(): a
+// frame takes ~50 ms (YOLO + display), and stepping the ramp only between frames made
+// patrol moves stutter 6-10 degrees at a time (board, 2026-10-18).
+extern "C" void SysTick_Handler(void)
+{
+    ms++;
+    if (servos_running && ms % 20 == 0) motion_tick(0.020f);
+}
 
 uint32_t waldo_millis(void) { return ms; }
 
@@ -93,6 +101,7 @@ int waldo_init(void)
     }
 #endif
     motion_init(servo_hw_write_us, -1, -1);
+    servos_running = true;
     if (camlink_init() != 0) printf("WALDO: camera link (UART0) init failed\n");
 #ifdef WALDO_TWO_BRAIN
     printf("WALDO: two-brain build, the M55-HE owns the microphones\n");
@@ -106,7 +115,7 @@ int waldo_init(void)
 
 void waldo_poll(void)
 {
-    static uint32_t last, last_stats;
+    static uint32_t last_stats;
     uint32_t now = ms;
     uint32_t c0 = cycles();
     camlink_poll(now);
@@ -207,10 +216,6 @@ void waldo_poll(void)
     }
 
     if (orch_running) orch_tick(now);
-    if (now - last >= 20) {
-        motion_tick((now - last) / 1000.0f);
-        last = now;
-    }
 #ifdef WALDO_TWO_BRAIN
     // Nothing until the next interrupt (camera bytes, the 1 ms tick): the HP sleeps.
     // The camera ring holds 64 KB, so a 1 ms nap loses nothing.
@@ -275,6 +280,7 @@ void waldo_servo_test(void)
 
 void waldo_home(void)
 {
+    motion_set_eased(true);   // ease from where the servos are to home, not a jolt
     motion_set(AXIS_PAN, 0);
     motion_set(AXIS_TILT, 0);
     orch_init(ms);   // start in SENTRY, looking ahead

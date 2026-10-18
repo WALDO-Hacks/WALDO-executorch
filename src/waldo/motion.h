@@ -16,6 +16,9 @@ void motion_set(int axis, float deg);     // absolute target, clamped to the axi
 void motion_nudge(int axis, float ddeg);  // relative to the current target
 void motion_park(void);
 void motion_tick(float dt_s);             // slew toward the targets and write PWM
+// Eased: moves speed up and slow down gently (patrol, boot, looking around); off: straight at
+// the slew rate, the most direct response (tracking).
+void motion_set_eased(bool on);
 float motion_pos(int axis);               // where the servo is being driven now
 float motion_target(int axis);
 int motion_center_us(int axis);

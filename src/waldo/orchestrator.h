@@ -7,7 +7,7 @@
 //           look) and runs the detector only where the view changed since the last lap or
 //           something moves (plus every 3rd lap); motion or a target -> TRACK
 //   TRACK   detector every frame, the tracker follows the target (and coasts/searches
-//           through short losses); lost for 4 s -> SENTRY, patrolling on from the nearest
+//           through short losses); lost: holds, looks left and right, then after 8 s -> SENTRY, patrolling on from the nearest
 //           stop and still looking for the same kind of thing
 //   HOLD    "stop": the turret freezes but keeps looking; "go" resumes
 //

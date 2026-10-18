@@ -1,6 +1,5 @@
 // Turns detection boxes into turret motion. The camera rides on the tilt head: each frame
-// aims the turret part of the way to where the target is (the camera's delay accounted
-// for); through a short loss it coasts at the target's speed (tracker.cpp has the details).
+// nudges the turret part of the way toward the target's offset from the centre.
 #pragma once
 #include <stdint.h>
 #include "detector.h"
@@ -12,9 +11,6 @@
 // target class (people until a switch picks something else). Returns true if a
 // target was among the boxes. A box of class DET_MOTION is always a target.
 bool tracker_update(const struct det_box *boxes, int n, int img_w, int img_h, uint32_t now_ms);
-// Call every loop: records where the turret points, and while `following` coasts through
-// short misses and searches the way a lost target went.
-void tracker_tick(uint32_t now_ms, bool following);
 void tracker_print(void);
 // Index (in the last boxes passed to tracker_update) of the target being followed, or -1.
 int tracker_target_index(void);
@@ -30,13 +26,8 @@ void tracker_switch(int dir, uint32_t now_ms);
 // Drop the current target and go back to following people.
 void tracker_reset_target(void);
 // Drop the current target (lost, or the turret moves on) but keep following its class.
-// This also ends the latch.
 void tracker_lose_target(void);
-// Latch: once a target is picked, only that one is followed (no other person, however big, takes
-// over) until it has gone unmatched for 4 s of processed frames, or a voice command changes it
-// (tracker_switch, tracker_reset_target, tracker_set_target_class, tracker_lose_target).
-bool tracker_latched(void);
-// "stop": the turret freezes. Keeps the latch and the target's last place, drops the stale speed.
+// "stop": drops a pending switch; keeps the target and its last place, so "go" resumes on it.
 void tracker_pause(void);
 // Follow this YOLO class from now on (0 = people), e.g. a "track cup" command. The class
 // stays until another one is chosen: tracker_switch(), this, or tracker_reset_target().
