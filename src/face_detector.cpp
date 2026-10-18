@@ -97,22 +97,36 @@ int face_detect_gray(const uint8_t *img, int w, int h, face_box *out, int max)
     if (!g_module || w <= 0 || h <= 0 || w > 1024 || h > 1024) return -1;
 
     const uint32_t t_pre = DWT->CYCCNT;
-    // Letterbox: scale the longer side to 128, centre, pad with mid-grey (0.0).
+    // Letterbox: scale the longer side to 128, centre, pad with mid-grey (0.0). The pixel
+    // scaling and the source column of each output column come from tables, rebuilt only
+    // when the frame size changes: no division or float conversion per pixel.
+    static float lut[256];
+    static int16_t src_x[kSize], src_y[kSize];   // -1 = padding
+    static int tab_w, tab_h;
+    if (lut[255] == 0.0f) {
+        for (int i = 0; i < 256; i++) lut[i] = i / 127.5f - 1.0f;
+    }
     const float scale = (float)kSize / (w > h ? w : h);
     const int sw = (int)(w * scale + 0.5f), sh = (int)(h * scale + 0.5f);
     const int ox = (kSize - sw) / 2, oy = (kSize - sh) / 2;
-    for (int y = 0; y < kSize; y++) {
-        for (int x = 0; x < kSize; x++) {
-            int u = x - ox, v = y - oy;
-            float p = 0.0f;
-            if (u >= 0 && u < sw && v >= 0 && v < sh) {
-                int sx = (int)(u / scale), sy = (int)(v / scale);
-                if (sx >= w) sx = w - 1;
-                if (sy >= h) sy = h - 1;
-                p = img[sy * w + sx] / 127.5f - 1.0f;
-            }
-            g_input[y * kSize + x] = p;
+    if (w != tab_w || h != tab_h) {
+        for (int i = 0; i < kSize; i++) {
+            int u = i - ox, v = i - oy;
+            int sx = (int)(u / scale), sy = (int)(v / scale);
+            src_x[i] = (u >= 0 && u < sw) ? (int16_t)(sx < w ? sx : w - 1) : -1;
+            src_y[i] = (v >= 0 && v < sh) ? (int16_t)(sy < h ? sy : h - 1) : -1;
         }
+        tab_w = w;
+        tab_h = h;
+    }
+    for (int y = 0; y < kSize; y++) {
+        float *dst = g_input + y * kSize;
+        if (src_y[y] < 0) {
+            for (int x = 0; x < kSize; x++) dst[x] = 0.0f;
+            continue;
+        }
+        const uint8_t *row = img + src_y[y] * w;
+        for (int x = 0; x < kSize; x++) dst[x] = src_x[x] < 0 ? 0.0f : lut[row[src_x[x]]];
     }
 
     std::array<SizesType, 4> sizes{1, kSize, kSize, 1};
