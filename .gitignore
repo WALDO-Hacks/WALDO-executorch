@@ -86,6 +86,7 @@ fvp_stdout.log
 !.vscode/launch.json.mac
 tests/host/test_orchestrator
 tests/host/test_tracking_loop
+tests/host/test_runner
 yolov8n.pt
 tests/host/test_view
 tests/host/*.ppm

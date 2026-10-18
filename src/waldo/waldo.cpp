@@ -73,6 +73,21 @@ int waldo_init(void)
 {
     SysTick_Config(SystemCoreClock / 1000U);
     if (servo_hw_init() != 0) return -1;
+#ifdef WALDO_SERVO_ZERO
+    // Assembly aid: both servos at their 1500 us centre, nothing else runs. Fit the horns so
+    // pan points straight ahead and tilt is level, then rebuild without WALDO_SERVO_ZERO.
+    // Wiggles +-20 degrees (222 us) every few seconds so you can see and hear both servos
+    // respond, and rests at the centre in between.
+    printf("WALDO: servo zero build, pan and tilt at 1500 us, wiggling +-20 deg every 4 s\n");
+    for (int step = 0;; step++) {
+        const float us = (step % 4 == 1) ? 1722.0f : (step % 4 == 3) ? 1278.0f : 1500.0f;
+        servo_hw_write_us(0, us);
+        servo_hw_write_us(1, us);
+        printf("WALDO: servo zero: %s\n", us > 1500 ? "+20" : us < 1500 ? "-20" : "centre");
+        const uint32_t t = ms;
+        while (ms - t < (us == 1500.0f ? 3000u : 1000u)) __WFI();
+    }
+#endif
     motion_init(servo_hw_write_us, -1, -1);
     if (camlink_init() != 0) printf("WALDO: camera link (UART0) init failed\n");
 #ifdef WALDO_TWO_BRAIN
