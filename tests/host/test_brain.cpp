@@ -142,7 +142,20 @@ int main()
     out = capture([](void *) { brain_hp_print(2000); }, nullptr);
     CHECK(out.find(" 10 windows") != std::string::npos, "stats delta: %s", out.c_str());
 
-    // 9. HE failed at a stage: the self-test wait ends early and says where.
+    // 9. The HE restarts (or the HP saw a stale mailbox): the head goes backwards. No old
+    // or zeroed words are replayed (label 0 is "down").
+    for (int i = 0; i < 5; i++) brain_post_word(&host_box, 7);
+    while (brain_hp_word() != -1) {}
+    he_boot();   // clears the mailbox: word_head back to 0
+    host_box.stage = BRAIN_LISTENING;
+    CHECK(brain_hp_word() == -1, "replayed a word after an HE restart");
+    brain_post_word(&host_box, 6);
+    CHECK(brain_hp_word() == 6, "first word after an HE restart lost");
+    host_box.windows = 3;
+    out = capture([](void *) { brain_hp_print(2000); }, nullptr);
+    CHECK(out.find(" 3 windows") != std::string::npos, "stats after restart: %s", out.c_str());
+
+    // 10. HE failed at a stage: the self-test wait ends early and says where.
     he_boot();
     host_box.stage = BRAIN_MODEL;
     host_box.error = 1;

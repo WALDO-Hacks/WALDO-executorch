@@ -51,6 +51,7 @@ struct brain_mailbox {
     volatile float rms0, rms1;        // microphone levels
     volatile uint32_t mic_errors;
     volatile uint32_t core_hz;        // the HE's SystemCoreClock
+    volatile uint32_t sram_ret, sram_err;   // the HE's SRAM power request to the SE
     volatile uint32_t log_head;       // bytes written to log so far
     volatile char log[BRAIN_LOG_SIZE];
 };

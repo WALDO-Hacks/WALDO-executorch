@@ -29,6 +29,7 @@ const char *stage_name(uint32_t s) { return s < sizeof kStage / sizeof kStage[0]
 void drain_log()
 {
     const uint32_t head = m->log_head;
+    if ((int32_t)(head - log_tail) < 0) log_tail = head;   // the HE restarted: start over
     if (head - log_tail > BRAIN_LOG_SIZE) log_tail = head - BRAIN_LOG_SIZE;   // fell behind: newest only
     static char line[128];
     static uint32_t n;
@@ -77,6 +78,9 @@ bool brain_hp_selftest(uint32_t timeout_ms)
            (unsigned long)(m->core_hz / 1000000u), stage_name(m->stage), m->error ? " and FAILED there" : "",
            m->selftest < 0 ? "not run" : pass ? "yes" : "wrong word", (double)m->selftest_prob,
            (unsigned long)m->selftest_mfcc_us, (unsigned long)m->selftest_npu_us);
+    if (m->sram_ret || m->sram_err)
+        printf("two-brain: the HE's SRAM power request returned %lu/%lu\n", (unsigned long)m->sram_ret,
+               (unsigned long)m->sram_err);
     printf("KWS_result: %s\n", pass ? "PASS" : "FAIL");
     return pass;
 }
@@ -91,6 +95,7 @@ int brain_hp_word(void)
         word_tail = m->word_head;
     }
     const uint32_t head = m->word_head;
+    if ((int32_t)(head - word_tail) < 0) word_tail = head;   // the HE restarted: nothing old to replay
     if (word_tail == head) return -1;
     if (head - word_tail > BRAIN_WORDS) word_tail = head - BRAIN_WORDS;   // missed some: oldest still there
     const int w = m->word[word_tail % BRAIN_WORDS];
@@ -105,6 +110,8 @@ void brain_hp_print(uint32_t window_ms)
         printf("two-brain: M55-HE silent (no mailbox)\n");
         return;
     }
+    if (m->windows < last_windows || m->heartbeat < last_heartbeat)   // the HE restarted
+        last_windows = last_mfcc = last_npu = last_heartbeat = 0;
     const uint32_t windows = m->windows - last_windows, mfcc = m->mfcc_us - last_mfcc, npu = m->npu_us - last_npu;
     const uint32_t beats = m->heartbeat - last_heartbeat;
     last_windows = m->windows;

@@ -27,14 +27,23 @@ int main(void)
     SysTick_Config(SystemCoreClock / 1000U);
 
     se_services_port_init();
+    /* The same request as the HP's (board/DevKit-E8/main.c): whichever the SE handles last
+       must not leave SRAM1, the HP's YOLO scratch and camera frames, switched off. */
     uint32_t err = 0;
-    SERVICES_power_memory_req(se_services_s_handle, POWER_MEM_SRAM_0_ENABLE, &err);
+    const uint32_t ret = SERVICES_power_memory_req(se_services_s_handle,
+                                                   POWER_MEM_SRAM_0_ENABLE | POWER_MEM_SRAM_1_ENABLE, &err);
 
+    /* Not valid until it's all written: the HP may be reading a mailbox left from before. */
     struct brain_mailbox *m = BRAIN_MAILBOX;
+    m->magic = 0;
+    __DMB();
     memset((void *)m, 0, sizeof *m);
     m->selftest = -1;
     m->core_hz = SystemCoreClock;
+    m->sram_ret = ret;
+    m->sram_err = err;
     m->stage = BRAIN_SRAM;
+    __DMB();
     m->magic = BRAIN_MAGIC;
     he_mailbox_flush();
     he_log_enable();
