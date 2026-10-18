@@ -1,5 +1,7 @@
 # WALDO: a voice-controlled turret that finds and follows, on one Alif E8
 
+> **Agents and contributors: read [`documentation/jitter-hypotheses.md`](documentation/jitter-hypotheses.md) before changing the tracker or orchestrator.** It lists unverified hypotheses for the turret's jitter and aimless motion, and how to test them.
+
 WALDO is a pan/tilt turret with a flashlight. It patrols a room, finds people and objects
 with a camera, points at them and keeps following them. You steer it by voice: "stop",
 "go", "left", "off". Everything runs on the **Alif Ensemble E8 DevKit**: no PC, no cloud.
