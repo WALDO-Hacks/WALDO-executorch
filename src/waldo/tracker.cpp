@@ -7,23 +7,26 @@
 
 static struct {
     float fov_long = 60;        // ESP32 OV3660: degrees across the sensor's long side
-    float deadband = 1.5f;      // degrees: closer than this to a still target, don't move
+    float deadband = 2.0f;      // degrees: closer than this to a still target, don't move
     int sign_pan = 1, sign_tilt = 1;
 } cfg;
 
-// The target is followed in turret angles (where it is in the room), not image pixels:
-// angle = where the turret pointed when the frame was taken + the target's offset in it.
-// An alpha-beta filter per axis smooths that and estimates the target's angular speed,
-// and the turret aims where the target will be (lead), not where it was. When detections
-// stop, the turret keeps going the way the target went (coast), then looks a bit further
-// that way (search) before the orchestrator gives up.
-constexpr float kAlpha = 0.75f;        // position correction per measurement
-constexpr float kBeta = 0.35f;          // speed correction per measurement
+// Two parts, so a wrong guess of the camera delay can't make the turret swing:
+//  - position: each detection turns the turret a fraction (kKp) of the way to centring
+//    the target, from the error measured in the image itself;
+//  - speed: an alpha-beta filter on the target's angle in the room (where the turret
+//    pointed when the frame was taken + the offset in it) estimates how fast it moves.
+//    Between frames the turret keeps turning at that speed (feed-forward), so a runner
+//    isn't left behind. When detections stop it carries on that way for a moment
+//    (coast), then looks a bit further that way (search) before the orchestrator gives up.
+constexpr float kKp = 0.35f;            // fraction of the image error corrected per frame
+constexpr float kAlpha = 0.6f;          // filter: position correction per measurement
+constexpr float kBeta = 0.05f;          // filter: speed correction per measurement
+constexpr float kFeedForward = 0.5f;    // fraction of the estimated speed turned with (robust to a wrong delay)
 constexpr float kMaxSpeed = 150;        // deg/s, a sprinting person a few metres away
-constexpr float kLeadS = 0.12f;         // aim this far ahead: frame age + servo response
-constexpr uint32_t kFrameAgeMs = 80;    // capture -> JPEG -> UART -> decode, before the detector
+constexpr uint32_t kFrameAgeMs = 160;   // capture + JPEG + 2 Mbaud UART + decode + YOLO, est. 150-200 ms
 constexpr uint32_t kFreshMs = 1000;     // a measurement older than this restarts the filter
-constexpr uint32_t kCoastMs = 700;      // after the last sighting: follow the predicted path
+constexpr uint32_t kCoastMs = 700;      // after the last sighting: keep turning at its speed
 constexpr uint32_t kSearchMs = 2500;    // then: look up to kSearchDeg further the way it went
 constexpr float kSearchDeg = 30;
 constexpr float kMovingDegS = 15;       // slower than this counts as standing still
@@ -34,16 +37,19 @@ static struct axis_filter {
 static bool kf_on;
 static uint32_t kf_t;   // time of the last measurement
 
-// Recent turret positions, to know where it pointed when the frame was taken.
-static struct { uint32_t t; float pan, tilt; } hist[32];
+// Recent turret positions (one per 10 ms, 640 ms deep), to know where it pointed when
+// the frame was taken.
+constexpr unsigned kHist = 64;
+constexpr uint32_t kHistEveryMs = 10;
+static struct { uint32_t t; float pan, tilt; } hist[kHist];
 static unsigned hist_n;
 
 static void turret_at(uint32_t t, float *pan, float *tilt)
 {
     *pan = motion_pos(AXIS_PAN);
     *tilt = motion_pos(AXIS_TILT);
-    for (unsigned k = 0; k < hist_n && k < 32; k++) {   // newest first
-        const auto &h = hist[(hist_n - 1 - k) % 32];
+    for (unsigned k = 0; k < hist_n && k < kHist; k++) {   // newest first
+        const auto &h = hist[(hist_n - 1 - k) % kHist];
         *pan = h.pan;
         *tilt = h.tilt;
         if ((int32_t)(h.t - t) <= 0) break;
@@ -52,17 +58,8 @@ static void turret_at(uint32_t t, float *pan, float *tilt)
 
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
 
-// Point the turret at the filter's prediction for `now` (+ lead).
-static void aim(uint32_t now, float extra_pan_deg)
-{
-    const float dt = (now - kf_t) / 1000.0f + kLeadS;
-    for (int a = 0; a < 2; a++) {
-        float goal = kf[a].th + kf[a].v * dt + (a == AXIS_PAN ? extra_pan_deg : 0);
-        // A still target close to centre: hold, so the beam doesn't jitter.
-        if (fabsf(kf[a].v) < kMovingDegS && fabsf(goal - motion_target(a)) < cfg.deadband) continue;
-        motion_set(a, goal);
-    }
-}
+static uint32_t last_tick;
+static bool searched;
 
 static int target_index = -1;
 static int switch_dir;   // pending tracker_switch()
@@ -183,25 +180,35 @@ bool tracker_update(const struct det_box *b, int n, int img_w, int img_h, uint32
         }
     }
     kf_t = now;
-    aim(now, 0);
+    searched = false;
+    if (fabsf(st.err_pan) > cfg.deadband) motion_nudge(AXIS_PAN, kKp * st.err_pan);
+    if (fabsf(st.err_tilt) > cfg.deadband) motion_nudge(AXIS_TILT, kKp * st.err_tilt);
     return true;
 }
 
 void tracker_tick(uint32_t now, bool following)
 {
-    hist[hist_n % 32] = {now, motion_pos(AXIS_PAN), motion_pos(AXIS_TILT)};
-    hist_n++;
-    if (!following || !kf_on) return;
+    if (!hist_n || now - hist[(hist_n - 1) % kHist].t >= kHistEveryMs) {
+        hist[hist_n % kHist] = {now, motion_pos(AXIS_PAN), motion_pos(AXIS_TILT)};
+        hist_n++;
+    }
+    const float dt = (now - last_tick) / 1000.0f;
+    last_tick = now;
+    if (!following || !kf_on || dt <= 0 || dt > 0.1f) return;
     const uint32_t since = now - kf_t;
     if (st.has_target || since < kCoastMs) {
-        aim(now, 0);   // between frames, and through short misses (motion blur, a pillar)
-    } else if (since < kCoastMs + kSearchMs && fabsf(kf[AXIS_PAN].v) >= kMovingDegS) {
-        // Out of sight while moving: it most likely carried on. Hold the coast point's
-        // speed off, and look further that way.
-        const float coast = kCoastMs / 1000.0f + kLeadS;
-        const float dir = kf[AXIS_PAN].v > 0 ? 1.0f : -1.0f;
-        motion_set(AXIS_PAN, kf[AXIS_PAN].th + kf[AXIS_PAN].v * coast + dir * kSearchDeg);
-        motion_set(AXIS_TILT, kf[AXIS_TILT].th);
+        // Feed-forward: turn with a moving target between frames and through short misses
+        // (motion blur, a pillar). A still target's "speed" is box noise: ignore it.
+        // While it is seen, the image error closes the loop, so only part of the speed is
+        // fed forward (a wrong delay guess can't build up into a swing); unseen, nothing
+        // corrects the coast, so it uses the full speed.
+        const float ff = st.has_target ? kFeedForward : 1.0f;
+        for (int a = 0; a < 2; a++)
+            if (fabsf(kf[a].v) >= kMovingDegS) motion_nudge(a, ff * kf[a].v * dt);
+    } else if (!searched && since < kCoastMs + kSearchMs && fabsf(kf[AXIS_PAN].v) >= kMovingDegS) {
+        // Out of sight while moving: it most likely carried on. Look further that way.
+        searched = true;
+        motion_nudge(AXIS_PAN, kf[AXIS_PAN].v > 0 ? kSearchDeg : -kSearchDeg);
     }
 }
 
