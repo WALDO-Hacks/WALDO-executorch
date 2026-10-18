@@ -87,3 +87,10 @@ Needs the project's Python venv (`.venv`, see the main README) and
 csolution prints `redefinition from 'AC6' into 'GCC'` and a few `update recommended ...
 --update-rte` lines; ignore them. The HE builds as Release (`optimize: size`), the HP as
 Debug.
+
+## If YOLO also needs `WALDO_NPU_SRAM0_ONLY`
+
+That layout fills SRAM0 up to 0x023F4000, which overlaps the HE's 512 KB share. Combine it
+with `WALDO_HE_POOLS_DTCM` (the HE then keeps only the 4 KB mailbox in SRAM0) and set
+`APP_SRAM0_HE_RESERVED` to `0x00001000` in
+`board/DevKit-E8/RTE/Device/AE822FA0E5597LS0_M55_HP/app_mem_regions.h`.
