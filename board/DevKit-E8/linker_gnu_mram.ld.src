@@ -88,6 +88,15 @@ SECTIONS
     *tgu*(.text .text.* .rodata .rodata*)
     *mpu*(.text .text.* .rodata .rodata*)
     *sau_tcm_ns_setup*(.text .text.* .rodata .rodata*)
+    /* WALDO: one-time setup code runs from MRAM too, leaving ITCM to the hot paths
+       (the Clang build overflowed ITCM otherwise) */
+    *services_*(.text .text.* .rodata .rodata*)
+    *se_services_port*(.text .text.* .rodata .rodata*)
+    *board_config*(.text .text.* .rodata .rodata*)
+    *pinconf*(.text .text.* .rodata .rodata*)
+    *program.cpp*(.text .text.* .rodata .rodata*)
+    *Driver_MIPI_DSI*(.text .text.* .rodata .rodata*)
+    *Driver_CDC200*(.text .text.* .rodata .rodata*)
 
     . = ALIGN(16);
   } > MRAM

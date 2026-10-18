@@ -99,7 +99,9 @@ LR_ROM __ROM_BASE NOCOMPRESS __ROM_SIZE  {    ; load region size_region
    * (.bss.camera_frame_bayer_to_rgb_buf) ; (Optional) Camera Frame Buffer for Bayer to RGB Conversion.
   }
 #else
-  RW_SRAM0 APP_SRAM0_BASE APP_SRAM0_SIZE  {  ; Update sections as needed
+  ; WALDO: as in linker_gnu_mram.ld.src. Above the A32 boot stub, below the M55-HE's share
+  ; (src/waldo/brain_link.h), and UNINIT: SRAM0/1 are unpowered until main() asks the SE.
+  RW_SRAM0 (APP_SRAM0_BASE + APP_SRAM_POOL_OFFSET) UNINIT (APP_SRAM0_SIZE - APP_SRAM_POOL_OFFSET - APP_SRAM0_HE_RESERVED)  {
    * (.bss.ai_pool)                       ; ExecuTorch method/temp pools (src/app_main.cpp)
    * (.bss.lcd_crop_and_interpolate_buf)  ; LCD crop and interpolate image processing buffer.
    * (.bss.lcd_frame_buf)                 ; LCD frame Buffer.
@@ -114,8 +116,8 @@ LR_ROM __ROM_BASE NOCOMPRESS __ROM_SIZE  {    ; load region size_region
    * power for these regions before adding contents.
    */
 
-  RW_SRAM1 APP_SRAM1_BASE APP_SRAM1_SIZE  {  ; Update sections as needed
-
+  RW_SRAM1 APP_SRAM1_BASE UNINIT APP_SRAM1_SIZE  {  ; WALDO: colour camera frames, the object detector
+   * (.bss.sram1*)
   }
 
 #endif
