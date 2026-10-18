@@ -1,59 +1,75 @@
 # WALDO: a voice-controlled turret that finds and follows, on one Alif E8
 
-WALDO is a pan/tilt turret with a flashlight. It looks for people and objects with a
-camera, points at them, and keeps following them. You steer it by voice: "stop", "go",
-"left", "off". All of it runs on the **Alif Ensemble E8 DevKit**, with no PC and no cloud.
-Two neural networks run through **ExecuTorch on the Ethos-U85 NPU**: YOLOv8n sees, MicroNet
-listens. The Cortex-M55 does the rest.
+WALDO is a pan/tilt turret with a flashlight. It patrols a room, finds people and objects
+with a camera, points at them and keeps following them. You steer it by voice: "stop",
+"go", "left", "off". Everything runs on the **Alif Ensemble E8 DevKit**: no PC, no cloud.
 
-Built for the Arm + Meta ExecuTorch hackathon on this repository's `hackathon` template.
-The original setup guide for the template is in
-[documentation/template-guide.md](documentation/template-guide.md).
+Two ExecuTorch models run on two NPUs of the same chip: **YOLOv8n on the Ethos-U85** sees,
+**MicroNet on the Ethos-U55** listens. Each sits behind a Cortex-M55 of its own.
+
+Built for the Arm + Meta ExecuTorch hackathon on this repository's `hackathon` template
+([original setup guide](documentation/template-guide.md)).
 
 <!-- demo GIF / photo goes here -->
+
+| | |
+|---|---|
+| **Sees** | YOLOv8n, 28 room classes, 320x320, 99/99 operators on the Ethos-U85 |
+| **Hears** | MicroNet-M, 10 command words, 42/42 operators on the Ethos-U55 (or the U85 in the single-core build) |
+| **Decides** | one state machine: patrol, track, hold, park; heavy models only when something changed |
+| **Moves** | two servos on hardware PWM, aimed at people's chests, not their eyes |
+| **Proves itself** | boot self-tests on the board; the same tests pass on Arm's FVPs in CI |
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    subgraph HEAD["ESP32-S3 camera head (the eye)"]
-        CAM["OV3660 sensor<br/>JPEG encoder in hardware"]
+    subgraph HEAD["ESP32-S3 camera head"]
+        CAM["OV3660 + hardware JPEG"]
     end
-    subgraph E8["Alif Ensemble E8: Cortex-M55 HP + Ethos-U85"]
-        RX["UART RX + JPEG decode<br/>(M55)"]
-        YOLO["YOLOv8n<br/>28 object classes (U85)"]
-        MOT["Motion + patrol memory<br/>(M55, no model)"]
-        MIC["2 PDM mics<br/>MFCC (M55)"]
-        KWS["MicroNet KWS<br/>10 words (U85)"]
-        ORCH{{"Orchestrator<br/>PARKED · SENTRY · TRACK · HOLD"}}
-        TRK["Tracker<br/>+ motion layer"]
-        LCD["LCD: what WALDO sees"]
+    subgraph E8["Alif Ensemble E8"]
+        subgraph HE["M55-HE 160 MHz: the ears, always on"]
+            MIC["2 PDM mics"] --> MFCC["MFCC (M55)"] --> KWS["MicroNet KWS<br/>Ethos-U55-128"]
+        end
+        BOX[("mailbox<br/>SRAM0")]
+        subgraph HP["M55-HP 400 MHz: the eyes"]
+            RX["UART + JPEG decode"] --> MOT["motion +<br/>patrol memory"]
+            RX --> YOLO["YOLOv8n<br/>Ethos-U85-256"]
+            ORCH{{"orchestrator<br/>PARKED · SENTRY · TRACK · HOLD"}}
+            MOT --> ORCH
+            YOLO --> ORCH
+            ORCH --> TRK["tracker"]
+            ORCH --> LCD["LCD view"]
+        end
+        KWS -- "heard words" --> BOX --> ORCH
     end
-    SERVO["Pan / tilt servos<br/>+ flashlight"]
-    CAM -- "320x240 colour, 2 Mbaud UART" --> RX
-    RX --> MOT & YOLO
-    MIC --> KWS
-    MOT & YOLO & KWS --> ORCH
-    ORCH --> TRK --> SERVO
-    ORCH --> LCD
+    CAM -- "320x240 JPEG, 2 Mbaud" --> RX
+    TRK --> SERVO["pan/tilt servos<br/>+ flashlight"]
 ```
 
-**The hardware split.** The ESP32 is only the eye: it captures, compresses in its own
-JPEG hardware, and sends. Every model and every decision runs on the E8. Each job goes to
-the unit that fits it:
+**Two brains.** The M55-HE listens all the time and sleeps between 16 ms audio blocks. It
+posts each word it hears to a mailbox in SRAM0 ([src/waldo/brain_link.h](src/waldo/brain_link.h)).
+The M55-HP does the vision and the steering, and sleeps between interrupts. This is the
+split Alif's own E8 voice-to-vision demo uses: always-on sensing on the small core, heavy models on the
+big one. One line in `board/DevKit-E8/Board-U85.clayer.yml` (`WALDO_TWO_BRAIN`) switches
+back to a single-core build, where the HP runs both models on the U85. Details:
+[he/README.md](he/README.md).
+
+**Each job on the unit that fits it:**
 
 | Job | Runs on | Why |
 |---|---|---|
-| Object detection, keyword spotting | **Ethos-U85** via ExecuTorch | dense int8 convolutions; every operator of both models runs on the NPU |
-| MFCC audio features, JPEG decode, motion detection, patrol memory, box decoding and NMS | **Cortex-M55** | branchy or small work, cheaper on the CPU than a trip to the NPU |
-| Microphone capture, camera bytes | PDM block, UART, both on interrupts | audio and frames arrive while the NPU runs |
+| Object detection | **Ethos-U85** via ExecuTorch | 1.09 GMAC of int8 convolutions per frame |
+| Keyword spotting | **Ethos-U55** via ExecuTorch, on the HE | tiny, always on, next to the mics |
+| MFCC, JPEG decode, motion, patrol memory, box decoding and NMS | **Cortex-M55** | branchy or small work, cheaper on the CPU |
+| Microphones, camera bytes | PDM block, UART, both on interrupts | data arrives while the NPUs run |
 | Servo PWM | UTIMER hardware | jitter-free 50 Hz, no CPU cost |
+| Capture and compression | ESP32-S3 camera head | its own JPEG hardware; the E8 only decodes |
 
 ### The orchestrator
 
-The orchestrator is one state machine
-([src/waldo/orchestrator.cpp](src/waldo/orchestrator.cpp)). It decides how much work each
-camera frame gets, so heavy models run only when there is something to look at.
+One state machine ([src/waldo/orchestrator.cpp](src/waldo/orchestrator.cpp)) decides how
+much work each camera frame gets, so YOLO runs only when there is something to look at.
 
 ```mermaid
 stateDiagram-v2
@@ -62,6 +78,7 @@ stateDiagram-v2
     TRACK --> SENTRY: target lost 5 s
     TRACK --> HOLD: "stop"
     SENTRY --> HOLD: "stop"
+    HOLD --> TRACK: "go" (was tracking)
     HOLD --> SENTRY: "go"
     SENTRY --> PARKED: "off"
     TRACK --> PARKED: "off"
@@ -71,81 +88,98 @@ stateDiagram-v2
 
 | State | What runs | Turret |
 |---|---|---|
-| PARKED | microphones only | head down |
-| SENTRY | motion detection on every frame (CPU only); YOLO only where the patrol memory says something changed | patrols: move, settle, look |
-| TRACK | the detector on every frame | follows the target |
-| HOLD | the detector on every frame | frozen |
+| PARKED | microphones only | head down, light into the deck |
+| SENTRY | motion on every frame (CPU); YOLO only where the patrol memory says something changed | patrols: move, settle, look |
+| TRACK | YOLO on every frame | follows the target |
+| HOLD | YOLO on every frame | frozen |
 
 **The patrol.** After 4 s of quiet, SENTRY sweeps a Z of 10 stops (pan -70 to 70 degrees,
-two tilts). At each stop the turret moves, waits 0.6 s for the servos to settle, then looks
-for 0.7 s. Each stop keeps a 300-byte picture of itself (the mean of every 8x8 cell), and
-YOLO runs only where that picture changed since the last lap, on a first visit, at every
-stop every third lap, or when something moves. On the host test, the second lap of an
-unchanged room runs YOLO at 0 of 10 stops, and an object that appears is picked up at the
-one stop that sees it ([tests/host/test_orchestrator.cpp](tests/host/test_orchestrator.cpp)).
+two tilts): move, settle 0.6 s, look 0.7 s. Each stop keeps a 300-byte picture of itself
+(the mean of every 8x8 cell, compared with one cell of slack for servo error). YOLO runs
+only where that picture changed since the last lap, on a first visit, every third lap, or
+when something moves. In the host test, a second lap of an unchanged room runs YOLO at
+**0 of 10 stops**, and an object that appears is picked up at the one stop that sees it.
 
 **Voice commands:**
 
 | Word | Effect |
 |---|---|
 | off | park |
-| on / go | wake up or resume |
+| on / go | wake up, or resume what it was doing before "stop" |
 | stop | hold still |
-| left / right / up / down | while tracking: **switch to the nearest person or object in that direction, and follow that kind of thing** (say "right" to move from a person to the cup beside them); otherwise: nudge the turret 10° |
+| left / right / up / down | while tracking: **switch to the nearest person or object in that direction and follow that kind of thing** ("right" moves from a person to the cup beside them); otherwise nudge 10 degrees |
 | no | drop the current target, back to following people |
 
-WALDO follows **people** by default, and aims at the chest rather than the face so the
-light stays out of people's eyes. The screen shows the camera view with boxes on what it sees
-(the target green, other people yellow, objects cyan) and a bar for the state: red PARKED,
-blue SENTRY, green TRACK, yellow HOLD.
+The screen shows the camera view with boxes (target green, other people yellow, objects
+cyan), the state, what WALDO follows, the last word it heard, and its frame rate.
 
 ## The models
 
-All three go through the same flow as the template's model: PyTorch, then int8 PT2E with
-the `EthosUQuantizer`, then the Ethos-U partitioner, then Vela, then a `.pte` embedded in
-the image.
+Both go through the template's flow: PyTorch, int8 PT2E with the `EthosUQuantizer`, the
+Ethos-U partitioner, Vela, a `.pte` embedded in the image. Only the float/int8
+conversions at the inputs and outputs stay on the CPU.
 
-| Model | Task | Input | NPU ops | Program | Source |
+| Model | Task | Input | NPU | Program | Source |
 |---|---|---|---|---|---|
-| BlazeFace (v1 turret, FVP self-test) | face detection | 128x128 gray | 100 % | 200 KB | MediaPipe front model, first conv folded to 1 channel ([model/model.py](model/model.py)) |
-| **MicroNet-M** | keyword spotting, 10 words | 49x10 MFCC (1 s at 16 kHz) | 42/42 | 170 KB | Arm ML-Zoo, rebuilt in PyTorch from its TFLite weights ([model/kws](model/kws)) |
-| **YOLOv8n** | 28 object classes | 320x320 RGB | 99/99 | 3.0 MB | Ultralytics, head sliced to 28 room classes by our vision lead ([model/yolo](model/yolo)) |
+| **YOLOv8n** | 28 room classes | 320x320 RGB | U85-256: 99/99 ops, 2.0 MB scratch | 3.0 MB | Ultralytics, head sliced to 28 classes by our vision lead ([model/yolo](model/yolo)) |
+| **MicroNet-M** | 10 command words | 49x10 MFCC (1 s at 16 kHz) | U55-128: 42/42 ops, 121 KB scratch (U85: 42/42) | 170 KB | Arm ML-Zoo, rebuilt in PyTorch from its TFLite weights ([model/kws](model/kws)) |
+| BlazeFace | faces (v1 turret, FVP test) | 128x128 gray | U85: 100 % | 200 KB | MediaPipe, first conv folded to 1 channel ([model/model.py](model/model.py)) |
 
-Only the float-to-int8 conversions at each model's input and output stay on the CPU.
+## Measured and verified
 
-## Measured
-
-`board` means measured on the DK-E8, and `host` means checked on a PC.
+`board` = on the DK-E8; `FVP` = Arm's Fixed Virtual Platforms in CI; `host` = on a PC.
 
 | What | Number | Where |
 |---|---|---|
-| BlazeFace inference (v1 turret) | **9.4 ms** on the U85 | board |
-| Full face-tracking frame (v1): preprocess 3.6 + NPU 9.4 + decode 0.6 + display 12.1 | 25.6 ms (27 % of the CPU at 10 fps) | board |
-| Boot self-test: face found on a built-in photo | `Test_result: PASS` | board |
-| Microphones: both channels at 16 kHz, no FIFO errors | — | board |
-| Camera link, grayscale 160x120 (v1) | 10.4 fps | board |
-| Camera link, **colour JPEG 320x240** (v2) | **27.8 fps** at about 3–12 KB per frame | camera head |
-| JPEG decode of a 320x240 camera frame | 0.25–0.7 ms on a laptop; the M55 is still to be measured | host |
-| KWS: int8 model vs float vs Arm's TFLite original on the sample clips | agree on every word | host |
-| YOLOv8n int8 on the team's 12 golden images vs the float model | agree on all but 3 near-threshold detections | host |
-| YOLOv8n on a DK-E8 (the team's own export) | 29 ms per frame, mAP50 0.439 board vs 0.439 host | board |
-| YOLOv8n compute, from Vela | 1.09 GMAC per frame, 2.0 MB of SRAM scratch, 99/99 operators on the NPU | build |
-| Patrol: YOLO runs on a second lap of an unchanged room | 0 of 10 stops | host |
+| YOLOv8n self-test: the firmware's JPEG decode, letterbox, NPU and decode on a photo | 3 people, 0.84 / 0.74 / 0.65 (PC reference 0.84 / 0.70 / 0.65) | FVP, U85 |
+| YOLOv8n NPU work per frame | 5.19 M NPU cycles; 1.09 GMAC (Vela) | FVP, build |
+| MicroNet on the HE's U55-128 | "yes" at 1.00; 549 k NPU cycles | FVP, U55 |
+| MicroNet on the U85; MFCC in C vs Python | "yes" at 1.00; MFCC identical | FVP, U85 |
+| Keyword spotting on 26 synthetic voices x 10 words (ElevenLabs), firmware logic | 96 % clean, 80 % at 20 dB noise | host |
+| Patrol, second lap of an unchanged room | YOLO at 0 of 10 stops | host |
+| YOLOv8n on a DK-E8 (the team's own export) | 29 ms per frame; mAP50 0.439 board = 0.439 host | board |
+| Camera link, colour JPEG 320x240 | 27.8 fps, 3–12 KB per frame | camera head |
+| BlazeFace frame, v1 turret: preprocess 3.6 + NPU 9.4 + decode 0.6 + display 12.1 ms | 25.6 ms | board |
+| WALDO's YOLO frame and power, single- vs two-brain | *to measure on the board* | board |
+
+**Memory** (GCC build, two-brain):
+
+| Region | HP image | HE image |
+|---|---|---|
+| MRAM | 3.2 MB of its 4.5 MB slot (YOLO program 3.0 MB) | 304 KB of its 512 KB slot |
+| SRAM0 (4 MB) | 2.7 MB: YOLO planned buffers, LCD frame | top 512 KB: KWS pools 320 KB, mailbox 4 KB |
+| SRAM1 (4 MB) | 3.9 MB: YOLO scratch 2 MB, camera frames, YOLO input | — |
+| TCM | ITCM 142 KB of 256 KB | ITCM 94 KB of 256 KB; DTCM data, heap, stack |
+
+**Tests and tools:**
+- `make -C tests/host`: the orchestrator, tracker and patrol against a simulated room, the
+  LCD rendered to an image, and the two-brain mailbox (restarts, overflow, wrap-around).
+- `.github/workflows/fvp-sim.yml`: YOLOv8n and both MicroNet builds on the Corstone-320
+  (U85) and Corstone-300 (U55-128) FVPs.
+- `tools/kws_live.py`: the board's listening logic on a laptop microphone.
+  `tools/kws_tts_test.py`: the same on synthetic voices.
+- `tools/orientation_check.py`: checks camera orientation and steering with only the camera head.
 
 ### Optimisations
 
-- **The camera sends JPEG**, compressed by the sensor's own hardware. Colour at 4x the
-  pixels and 2.7x the frame rate, over the same 2 Mbaud UART.
-- **The patrol remembers each stop.** A 300-byte picture per stop decides whether YOLO
-  needs to look again, so an unchanged room costs the NPU nothing on most laps.
-- **Audio features are computed as audio arrives.** Each 20 ms of audio adds one MFCC
-  frame, so a 1 s window never needs recomputing; the NPU classifies it every 200 ms.
-- **The NPU only sees work it is good at.** Every operator of every model is delegated.
-- **Per-stage timing**: every 2 s the board prints mean and worst time per stage
-  (preprocess, forward, decode, orchestrator, display), which is how we found that the display,
-  not the NPU, is the most expensive stage. The Ethos driver's begin/end hooks time the NPU's
-  own work separately, so `forward` minus `NPU busy` is what the CPU spends converting the
-  input to int8 and the outputs back.
+- **The camera sends JPEG**, compressed by its own hardware: colour, 4x the pixels and 2.7x
+  the frame rate of raw grayscale over the same 2 Mbaud UART.
+- **The patrol remembers each stop**, so an unchanged room costs the NPU nothing on most laps.
+- **Audio features are computed as audio arrives**: each 20 ms adds one MFCC frame; the NPU
+  classifies the last second every 200 ms.
+- **Listening moved to the small core** (two-brain), so the big core can sleep.
+- **Every operator of every model is on an NPU.**
+- **Per-stage timing on the board**: mean and worst per stage every 2 s, and the NPU's own
+  busy time from the Ethos driver's hooks, so `forward` minus `NPU busy` is the CPU's
+  int8 conversion cost.
+
+### How it compares
+
+Each stage follows a pattern from shipping products: Siri's two-pass voice trigger (a small
+always-on detector wakes the main processor), Frigate's motion-gated object detection, and
+the guard tours of PTZ security cameras. WALDO runs all of them on one microcontroller,
+with a 28-class detector instead of the usual person/no-person classifier, and keeps a
+memory per patrol stop so motion gating works on a moving camera.
 
 ## Hardware
 
@@ -159,12 +193,6 @@ Only the float-to-int8 conversions at each model's input and output stay on the 
 
 The J10 header is level-shifted to 3.3 V on the DevKit. The servo signals connect directly.
 
-## Two-brain (branch `two-brain`)
-
-The M55-HE and its Ethos-U55-128 listen all the time; the M55-HP and the Ethos-U85 see and
-steer, and sleep between interrupts. The HE posts heard words to a mailbox in SRAM0. See
-[he/README.md](he/README.md). Not yet run on a board.
-
 ## Build and run
 
 You need CMSIS-Toolbox 2.15, Arm GNU Toolchain 14.3 and Alif SETOOLS (see
@@ -173,7 +201,7 @@ You need CMSIS-Toolbox 2.15, Arm GNU Toolchain 14.3 and Alif SETOOLS (see
 ```sh
 cp tools/env.sh.example ~/arm-tools/env.sh   # edit the paths
 source ~/arm-tools/env.sh
-tools/flash.sh            # build, write the boot table and the image to MRAM (SW4 on SEUART)
+tools/flash.sh            # build both images, write the boot table and MRAM (SW4 on SEUART)
 # SW4 to UART4, press reset; console at 115200 on the PRG USB port
 ```
 
@@ -184,12 +212,15 @@ To re-export a model:
 ```sh
 python create_ai_layer.py cmsis-executorch.cbuild-mlops.yml                   # BlazeFace -> ai_layer/
 .venv/bin/python model/kws/export_kws.py cmsis-executorch.cbuild-mlops.yml    # keyword spotter -> src/kws_pte.c
+.venv/bin/python model/kws/export_kws.py cmsis-executorch.cbuild-mlops.yml --he   # the same for the HE's U55 -> he/kws_pte_he.c
 <venv with ultralytics>/bin/python model/yolo/export_yolo.py cmsis-executorch.cbuild-mlops.yml <images>
-make -C tests/host                                                            # orchestrator host test
+make -C tests/host                                                            # host tests
 ```
 
-At boot the board tests itself and prints `KWS_result` (a recorded "yes") and `YOLO_result`
-(a photo of people). The FVP build prints `Test_result` (BlazeFace on a face photo). Then it runs a servo test and starts in SENTRY.
+At boot the board tests itself and prints `KWS_result` (a recorded "yes", from the HE in the
+two-brain build) and `YOLO_result` (a photo of people), then runs a servo test and starts in
+SENTRY. The FVP build prints `Test_result` (BlazeFace), and with GCC also `KWS_result` and
+`YOLO_result`.
 
 ## Things we learned about the E8
 
@@ -203,6 +234,10 @@ At boot the board tests itself and prints `KWS_result` (a recorded "yes") and `Y
   We override the driver's `ethosu_address_remap` to translate it
   ([board/DevKit-E8/ethos_setup.c](board/DevKit-E8/ethos_setup.c)); the large pools still
   sit in SRAM.
+- **Two cores, one SRAM.** The HE and HP images each get their own linker map, and the HP's
+  stops 512 KB short of the top of SRAM0. Both cores ask the Secure Enclave for the same
+  memory power (one request could otherwise switch off the other core's bank), and SRAM0 is
+  cached on both, so the mailbox is cleaned on the writer and invalidated on the reader.
 - The UTIMER driver needs a non-NULL callback. Servo channels need compare buffering off,
   or the duty cycle never changes.
 - Arm's quantizer does not fuse `relu6` with a convolution in this ExecuTorch version, and
@@ -211,26 +246,17 @@ At boot the board tests itself and prints `KWS_result` (a recorded "yes") and `Y
 
 ## Status
 
-**Works on the board (v1, branch `waldo`):**
-- face tracking with BlazeFace on the NPU
-- camera link, servo tracking, the LCD view
-- microphones
-- standalone boot with the self-test
+**Worked on the board (v1, branch `waldo`):** face tracking with BlazeFace on the NPU, the
+camera link, servo tracking, the LCD view, the microphones, standalone boot.
 
-**Built and host-tested, waiting for a board:** our DevKit failed during the hackathon.
-- keyword spotting live
-- the orchestrator
-- the JPEG camera path
-- the patrol with per-stop memory
-- YOLOv8 in the firmware: the app's MRAM slot grows to 4.5 MB and the HE slot shrinks to
-  512 KB; the model is embedded as is (`src/yolo_pte.S`); its pools sit in SRAM0 and SRAM1
-  (`WALDO_NPU_SRAM0_ONLY` puts both NPU pools in SRAM0 instead); a boot self-test runs it on
-  a photo of people
+**Built, host-tested and run on the FVPs; our DevKit failed during the hackathon:** YOLOv8n
+in the firmware, live keyword spotting, the orchestrator and patrol, the JPEG camera path,
+the two-brain split. *Board results go here.*
 
 **Next steps:**
-- Two-brain: listening on the **M55-HE + Ethos-U55** is built on branch `two-brain` (see
-  above); next, motion detection there too, and the HP powered down in SENTRY.
-- Measure the power difference.
+- Motion detection on the HE too, and the HP powered down while the room is quiet.
+- A second-pass check of each heard word on the HP (as Siri does), and a wake word.
+- Measure the power of single- vs two-brain.
 
 ## Credits and licences
 
