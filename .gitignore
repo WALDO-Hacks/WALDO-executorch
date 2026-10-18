@@ -90,3 +90,4 @@ tests/host/test_view
 tests/host/*.ppm
 
 !model/yolo/yolo.pte
+tests/host/test_brain

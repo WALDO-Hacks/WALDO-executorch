@@ -1,0 +1,27 @@
+# WALDO two-brain: the M55-HE image (always-on ears). Built on its own so the main
+# solution (HP image, FVP target, CI) is unchanged; tools/flash.sh builds both and boots
+# both from one ATOC. See he/README.md.
+solution:
+  created-for: CMSIS-Toolbox@2.15.0
+  cdefault:
+  compiler: GCC
+
+  packs:
+    - pack: PyTorch::ExecuTorch@1.5.1
+    - pack: ARM::CMSIS
+    - pack: ARM::CMSIS-Compiler
+    - pack: AlifSemiconductor::Ensemble@^2.2.0-0
+    - pack: ARM::ethos-u-core-driver@^1.26.2
+
+  target-types:
+    - type: DevKit-E8-HE
+      board: Alif Semiconductor::DevKit-E8
+      device: Alif Semiconductor::AE822FA0E5597LS0:M55_HE
+
+  build-types:
+    - type: Release
+      debug: on
+      optimize: size   # the HE slot in MRAM is 512 KB
+
+  projects:
+    - project: ./waldo-he.cproject.yml

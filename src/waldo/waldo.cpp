@@ -16,6 +16,9 @@
 #include "kws.hpp"
 #include "orchestrator.h"
 #include "view.h"
+#ifdef WALDO_TWO_BRAIN
+#include "brain_hp.h"
+#endif
 
 // Per-stage timing (DWT cycle counter, started by kws_init / yolo_init): mean and worst
 // over each 2 s stats window, printed with the stats.
@@ -71,7 +74,11 @@ int waldo_init(void)
     if (servo_hw_init() != 0) return -1;
     motion_init(servo_hw_write_us, -1, -1);
     if (camlink_init() != 0) printf("WALDO: camera link (UART0) init failed\n");
+#ifdef WALDO_TWO_BRAIN
+    printf("WALDO: two-brain build, the M55-HE owns the microphones\n");
+#else
     if (mic_init() != 0) printf("WALDO: microphones init failed\n");
+#endif
     printf("WALDO: servos up, parked (pan %.0f, tilt %.0f)\n",
            (double)motion_pos(AXIS_PAN), (double)motion_pos(AXIS_TILT));
     return 0;
@@ -143,6 +150,9 @@ void waldo_poll(void)
         orch_print(now);
         tracker_print();
         st_print(now - last_stats);
+#ifdef WALDO_TWO_BRAIN
+        brain_hp_print(now - last_stats);
+#else
         float r0, r1;
         uint32_t errs, mfcc_us, npu_us, windows;
         mic_levels(&r0, &r1, &errs);
@@ -150,10 +160,15 @@ void waldo_poll(void)
         printf("voice: mic rms %.0f/%.0f (%lu errors), %lu windows, MFCC %lu us, NPU %lu us total\n",
                (double)r0, (double)r1, (unsigned long)errs, (unsigned long)windows,
                (unsigned long)mfcc_us, (unsigned long)npu_us);
+#endif
         last_stats = now;
     }
-    // Voice: the keyword spotter listens all the time.
+    // Voice: the keyword spotter listens all the time (on the M55-HE in the two-brain build).
+#ifdef WALDO_TWO_BRAIN
+    int word = brain_hp_word();
+#else
     int word = kws_listen(now);
+#endif
     if (word >= 0) {
         printf("HEARD: %s\n", kws_label(word));
         orch_word(kws_label(word), now);
@@ -165,6 +180,11 @@ void waldo_poll(void)
         motion_tick((now - last) / 1000.0f);
         last = now;
     }
+#ifdef WALDO_TWO_BRAIN
+    // Nothing until the next interrupt (camera bytes, the 1 ms tick): the HP sleeps.
+    // The camera ring holds 64 KB, so a 1 ms nap loses nothing.
+    __WFI();
+#endif
 }
 
 void waldo_servo_test(void)

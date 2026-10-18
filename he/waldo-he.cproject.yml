@@ -1,0 +1,89 @@
+# WALDO two-brain, M55-HE image: the on-board microphones, MFCC on the M55-HE and MicroNet
+# keyword spotting on its Ethos-U55-128 through ExecuTorch. Heard words go to the HP image
+# through a mailbox in SRAM0 (src/waldo/brain_link.h). No console: printf goes into the
+# mailbox's log ring and the HP prints it.
+project:
+  device: :M55_HE
+  processor:
+    trustzone: off
+
+  define:
+    - CMSIS_target_header: \"DevKit-E8.h\"
+    - ETHOSU55
+    - ETHOSU_ARCH: u55
+    - NPU_QCONFIG: 1
+    - NPU_REGIONCFG_0: 1
+    - NPU_REGIONCFG_1: 0
+    - NPU_REGIONCFG_2: 1
+    - AXI_LIMIT0_MEM_TYPE: 3
+    - AXI_LIMIT1_MEM_TYPE: 3
+    - AXI_LIMIT2_MEM_TYPE: 3
+    - AXI_LIMIT3_MEM_TYPE: 3
+    - ET_LOG_ENABLED: 0
+    - WALDO_HE
+    # src/kws.cpp: the pools in the HE's part of SRAM0 (the U55 reaches SRAM; Vela: 121 KiB scratch)
+    - KWS_POOL_SECTION: \".bss.he_pool\"
+    - KWS_METHOD_POOL_SIZE: 131072
+    - KWS_TEMP_POOL_SIZE: 196608
+
+  add-path:
+    - ../src
+    - .
+
+  misc:
+    - CPP:
+        - -std=gnu++17
+        - -Wno-deprecated-declarations
+        - -Wno-psabi
+    - C:
+        - -Wno-psabi
+    - Link:
+        - -Wl,-u,_printf_float
+
+  components:
+    - component: Device:Startup
+    - component: BSP:Board Config
+    - component: BSP:DevKit Config&DevKit-e8
+    - component: CMSIS:CORE
+    - component: CMSIS-Compiler:CORE
+    - component: CMSIS-Compiler:STDOUT:Custom
+    - component: CMSIS-Compiler:STDERR:Custom
+    - component: Device:SOC Peripherals:MHU
+    - component: Device:SOC Peripherals:PINCONF
+    - component: Device:SOC Peripherals:PDM
+    - component: Machine Learning:NPU Support:Ethos-U Driver&Generic U55
+    - component: Services:Secure Enclave:core&Source
+    - component: Services:Secure Enclave:Initialization Helper&Source
+    - component: Machine Learning:ExecuTorch:Runtime
+    - component: Machine Learning:ExecuTorch:Kernel Utils
+    - component: Machine Learning:ExecuTorch:Kernel Registration
+    - component: Machine Learning:ExecuTorch:Backend EthosU
+    - component: Machine Learning:ExecuTorch Operators:Quantized dequantize
+    - component: Machine Learning:ExecuTorch Operators:Quantized quantize
+
+  groups:
+    - group: HE
+      files:
+        - file: ./main.c
+        - file: ./he_app.cpp
+        - file: ./he_log.c
+        - file: ./DevKit-E8.h
+        - file: ./ethos_setup.c
+        - file: ./ethosu_cb_dcache.c
+        - file: ./kws_pte_he.c
+    - group: Shared
+      files:
+        - file: ../src/kws.cpp
+        - file: ../src/arm_embedded_module.cpp
+        - file: ../src/waldo/kws_mfcc.c
+        - file: ../src/waldo/mic.c
+
+  linker:
+    - regions: ./RTE/Device/AE822FA0E5597LS0_M55_HE/app_mem_regions.h
+    - script: ./linker_gnu_he.ld.src
+
+  output:
+    type:
+      - elf
+      - bin
+      - map

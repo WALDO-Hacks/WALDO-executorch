@@ -39,6 +39,9 @@
 extern "C" const unsigned long yolo_pte_size;
 #include "waldo/kws_mfcc.h"
 #include "waldo/waldo.h"
+#ifdef WALDO_TWO_BRAIN
+#include "waldo/brain_hp.h"
+#endif
 
 // Keyword spotter self-test: MFCCs of a recorded "yes" on the M55 (checked against the
 // ones Python computed at export time), then MicroNet on the NPU must say "yes".
@@ -92,11 +95,16 @@ extern "C" int app_main(void) {
   // The turret: keyword spotting and YOLOv8 on the Ethos-U85, each checked at boot.
   printf("WALDO: MicroNet KWS (%lu B) and YOLOv8n (%lu B) ExecuTorch programs on the Ethos-U85\n",
          static_cast<unsigned long>(kws_pte_size), static_cast<unsigned long>(yolo_pte_size));
+#ifdef WALDO_TWO_BRAIN
+  // Two-brain: the M55-HE listens (he/); here we only wait for its self-test.
+  brain_hp_selftest(5000);
+#else
   if (kws_init()) {
     kws_self_test();
   } else {
     printf("keyword spotter init failed\n");
   }
+#endif
   if (yolo_init()) {
     yolo_self_test();
   } else {

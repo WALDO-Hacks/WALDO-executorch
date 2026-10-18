@@ -81,6 +81,9 @@
 //   <i> The ATOC loads the A32 boot stub (a32_stub_0.bin) to 0x02000000; the
 //   <i> ExecuTorch pools (.bss.ai_pool) and the LCD frame buffer start above it.
 #define APP_SRAM_POOL_OFFSET   0x00010000   // WALDO (from hackathon-pico-faces)
+// WALDO two-brain: the top 512 KB of SRAM0 belong to the M55-HE image (its ExecuTorch pools
+// and the mailbox, src/waldo/brain_link.h); the HP linker stops below them.
+#define APP_SRAM0_HE_RESERVED  0x00080000
 //   <q>No zero initialize
 //   <i> Excludes SRAM0 region from zero initialization.
 #define APP_SRAM0_NOINIT       1

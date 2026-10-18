@@ -34,13 +34,22 @@ using executorch::runtime::MemoryAllocator;
 
 namespace {
 
-#ifdef APP_POOL_SECTION
+// The two-brain HE image (he/) sets its own section and sizes: the U55-128 needs 121 KiB.
+#if defined(KWS_POOL_SECTION)
+#define KWS_POOL_ATTRIBUTES __attribute__((section(KWS_POOL_SECTION)))
+#elif defined(APP_POOL_SECTION)
 #define KWS_POOL_ATTRIBUTES __attribute__((section(APP_POOL_SECTION)))
 #else
 #define KWS_POOL_ATTRIBUTES
 #endif
-constexpr size_t kMethodPool = 128 * 1024;
-constexpr size_t kTempPool = 128 * 1024;   // Ethos-U scratch (Vela: 55 KB)
+#ifndef KWS_METHOD_POOL_SIZE
+#define KWS_METHOD_POOL_SIZE (128 * 1024)
+#endif
+#ifndef KWS_TEMP_POOL_SIZE
+#define KWS_TEMP_POOL_SIZE (128 * 1024)   // Ethos-U scratch (Vela: 55 KB on the U85)
+#endif
+constexpr size_t kMethodPool = KWS_METHOD_POOL_SIZE;
+constexpr size_t kTempPool = KWS_TEMP_POOL_SIZE;
 alignas(16) uint8_t g_method_pool[kMethodPool] KWS_POOL_ATTRIBUTES;
 alignas(16) uint8_t g_temp_pool[kTempPool] KWS_POOL_ATTRIBUTES;
 
